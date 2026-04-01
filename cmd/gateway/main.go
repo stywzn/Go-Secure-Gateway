@@ -1,12 +1,13 @@
 package main
 
 import (
-	"Go-Secure-Gateway/internal/config"
-	"Go-Secure-Gateway/internal/middleware"
-	"Go-Secure-Gateway/internal/proxy"
 	"log"
 	"net/http"
 	"time"
+
+	"Go-Secure-Gateway/internal/config"
+	"Go-Secure-Gateway/internal/middleware"
+	"Go-Secure-Gateway/internal/proxy"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
@@ -15,68 +16,17 @@ import (
 )
 
 func main() {
-
+	// 1. 加载配置
 	cfg := config.LoadConfig("configs/config.yaml")
 
 	r := gin.Default()
 
-	limiter := middleware.NewIPRateLimiter(rate.Limit(2), 5)
-	// 把限流中间件挂载到全局
-	r.Use(middleware.RateLimitMiddleware(limiter))
-
+	// 2. 暴露 Prometheus 监控指标 (公开接口)
 	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
-	// Standard Kubernetes probes
-	r.GET("/healthz", func(c *gin.Context) { c.String(200, "ok") })
-	r.GET("/readyz", func(c *gin.Context) { c.String(200, "ok") })
-
-	targetURL := "http://your-backend-service:8080"
-
-	proxyEngine, err := proxy.NewProxyEngine(targetURL)
-	if err != nil {
-		log.Fatalf("Failed to initialize proxy engine: %v", err)
-	}
-
-	// ==========================================
-	// Gateway Core Routing Group
-	// ==========================================
-	// Apply your existing security and rate-limiting middlewares
-	apiGroup := r.Group("/api")
-	apiGroup.Use(middleware.RateLimit()) // Your existing token bucket implementation
-	apiGroup.Use(middleware.JWTAuth())   // Your existing JWT validation
-
-	{
-		// CRITICAL: The handover point.
-		// We use gin.WrapH to convert the standard net/http.Handler (our ProxyEngine)
-		// into a Gin HandlerFunc.
-		// Traffic goes: Gin Route -> Middlewares -> Native Proxy -> Backend
-		apiGroup.Any("/*path", gin.WrapH(proxyEngine))
-	}
-
-	// 鉴权白名单
-	publicPaths := map[string]bool{
-		"/healthz":     true,
-		"/readyz":      true,
-		"/debug/token": true,
-	}
-
-	r.Use(func(c *gin.Context) {
-		if publicPaths[c.Request.URL.Path] {
-			c.Next()
-			return
-		}
-		middleware.JWTAuth(cfg.JWT.Secret)(c)
-	})
-
-	// 基础探针与工具接口
-	r.GET("/healthz", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok"})
-	})
-
-	r.GET("/readyz", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok"})
-	})
-
+	// 3. 基础探针与调试接口 (公开接口)
+	r.GET("/healthz", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })
+	r.GET("/readyz", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })
 	r.GET("/debug/token", func(c *gin.Context) {
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 			"user_id": 9527,
@@ -86,21 +36,46 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"token": tokenString})
 	})
 
-	//动态多服务路由
+	// 4. 初始化全局限流器 (2 qps, 突发 5)
+	limiter := middleware.NewIPRateLimiter(rate.Limit(2), 5)
+
+	// ==========================================
+	// 5. 核心受保护路由组 (Gateway Core)
+	// ==========================================
+	// 把需要保护的路由全部放进 protectedGroup
+	protectedGroup := r.Group("/")
+
+	// 修复错误 1: 传入 limiter 参数
+	protectedGroup.Use(middleware.RateLimitMiddleware(limiter))
+
+	// 修复错误 2: 统一 JWT 鉴权 (使用配置里的 Secret)
+	protectedGroup.Use(middleware.JWTAuth(cfg.JWT.Secret))
+
+	// 6. 动态挂载 YAML 配置中的微服务路由
 	log.Println("========================================")
 	log.Println("正在加载微服务路由表...")
-	// 遍历 yaml 路由数组 动态挂载到Gin上
+
 	for _, route := range cfg.Routes {
-		prefix := route.PathPrefic
+		prefix := route.PathPrefic // 注意：这里保留了你 struct 里的拼写 PathPrefic
 		target := route.TargetURL
 
-		r.Any(prefix, proxy.GinReverseProxy(target))
-		r.Any(prefix+"/*path", proxy.GinReverseProxy(target))
+		// 为每个后端目标初始化我们写的高性能原生代理引擎
+		proxyEngine, err := proxy.NewProxyEngine(target)
+		if err != nil {
+			log.Fatalf("代理引擎初始化失败 [%s]: %v", target, err)
+		}
+
+		// 修复错误 3 & 4: 废弃 GinReverseProxy，改用 gin.WrapH 包装我们自己的原生引擎
+		// 将其挂载到受保护的路由组中
+		protectedGroup.Any(prefix, gin.WrapH(proxyEngine))
+		protectedGroup.Any(prefix+"/*path", gin.WrapH(proxyEngine))
+
 		log.Printf("映射成功: %-15s => %s", prefix, target)
 	}
 	log.Println("========================================")
 
-	log.Printf("Go-Secure-Gateway (启动. 监听端口 %s", cfg.Server.Port)
+	// 7. 启动服务
+	log.Printf("Go-Secure-Gateway 启动，监听端口 %s", cfg.Server.Port)
 	if err := r.Run(cfg.Server.Port); err != nil {
 		log.Fatalf("网关服务异常退出: %v", err)
 	}

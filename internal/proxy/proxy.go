@@ -1,27 +1,30 @@
 package proxy
 
 import (
+	"Go-Secure-Gateway/internal/metrics"
 	"log"
+	"net/http"
 	"net/http/httputil"
 	"net/url"
-
-	"github.com/gin-gonic/gin"
+	"strconv"
+	"time"
 )
 
-type ProxyEngine(targetURL string) {
+type ProxyEngine struct {
 	target *url.URL
-	proxy *httputil.ReverseProxy
+	proxy  *httputil.ReverseProxy
+	cb     *CircuitBreaker
 }
 
-func ProxyEngine(targetURL	string) (*ProxyEngine,error){
-	target,err:=url.Parse(targetURL)
-	if err!=nil{
-		return nil,err
+func NewProxyEngine(targetURL string) (*ProxyEngine, error) {
+	target, err := url.Parse(targetURL)
+	if err != nil {
+		return nil, err
 	}
-	proxy:=httputil.NewSingleHostReverseProxy(target)
+	proxy := httputil.NewSingleHostReverseProxy(target)
 	cb := NewCircuitBreaker(5, 10*time.Second)
 
-	proxy.Transport=&http.Transport{
+	proxy.Transport = &http.Transport{
 		MaxIdleConns:          100,              // Max global idle connections
 		MaxIdleConnsPerHost:   100,              // Max idle connections per backend host
 		IdleConnTimeout:       90 * time.Second, // Timeout for keeping idle connections alive
@@ -30,7 +33,7 @@ func ProxyEngine(targetURL	string) (*ProxyEngine,error){
 	}
 
 	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
-	log.Printf("[Proxy Error] %v", err)
+		log.Printf("[Proxy Error] %v", err)
 		// TODO: Trigger Circuit Breaker metrics here
 		http.Error(w, "Backend service unavailable", http.StatusBadGateway)
 	}
@@ -38,12 +41,12 @@ func ProxyEngine(targetURL	string) (*ProxyEngine,error){
 	return &ProxyEngine{
 		target: target,
 		proxy:  proxy,
-		cb:cb,
+		cb:     cb,
 	}, nil
 }
 
 func (p *ProxyEngine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-if !p.cb.Allow() {
+	if !p.cb.Allow() {
 		http.Error(w, "503 Service Unavailable (Circuit Open)", http.StatusServiceUnavailable)
 		return
 	}
