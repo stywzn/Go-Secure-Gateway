@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/time/rate"
 )
 
@@ -22,6 +23,35 @@ func main() {
 	limiter := middleware.NewIPRateLimiter(rate.Limit(2), 5)
 	// 把限流中间件挂载到全局
 	r.Use(middleware.RateLimitMiddleware(limiter))
+
+	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
+
+	// Standard Kubernetes probes
+	r.GET("/healthz", func(c *gin.Context) { c.String(200, "ok") })
+	r.GET("/readyz", func(c *gin.Context) { c.String(200, "ok") })
+
+	targetURL := "http://your-backend-service:8080"
+
+	proxyEngine, err := proxy.NewProxyEngine(targetURL)
+	if err != nil {
+		log.Fatalf("Failed to initialize proxy engine: %v", err)
+	}
+
+	// ==========================================
+	// Gateway Core Routing Group
+	// ==========================================
+	// Apply your existing security and rate-limiting middlewares
+	apiGroup := r.Group("/api")
+	apiGroup.Use(middleware.RateLimit()) // Your existing token bucket implementation
+	apiGroup.Use(middleware.JWTAuth())   // Your existing JWT validation
+
+	{
+		// CRITICAL: The handover point.
+		// We use gin.WrapH to convert the standard net/http.Handler (our ProxyEngine)
+		// into a Gin HandlerFunc.
+		// Traffic goes: Gin Route -> Middlewares -> Native Proxy -> Backend
+		apiGroup.Any("/*path", gin.WrapH(proxyEngine))
+	}
 
 	// 鉴权白名单
 	publicPaths := map[string]bool{
