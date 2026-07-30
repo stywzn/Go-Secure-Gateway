@@ -1,0 +1,40 @@
+server:
+  port: ":8080"
+  read_timeout_seconds: 15
+  write_timeout_seconds: 15
+  idle_timeout_seconds: 60
+
+# jwt.secret is injected via the JWT_SECRET env var in docker-compose.
+
+rate_limit:
+  rps: 50
+  burst: 100
+
+# Enabled so the demo frontend can mint a token via /debug/token.
+debug: true
+
+# Each route is intentionally shaped for a different kind of test:
+routes:
+  # Echo, prefix NOT stripped -> auth / header-propagation tests.
+  - path_prefix: "/interaction"
+    target_url: "http://backend-interaction:8080"
+    strip_prefix: false
+
+  # Two replicas -> load-balancing tests (watch X-Served-By alternate).
+  - path_prefix: "/storage"
+    targets:
+      - "http://backend-storage:8080"
+      - "http://backend-storage-2:8080"
+    strip_prefix: true
+
+  # Single backend -> fault-injection tests (?status=/?delay= for circuit
+  # breaker & timeouts). Kept separate so tripping the breaker here does not
+  # disturb the stateful CRUD tests on /data.
+  - path_prefix: "/compute"
+    target_url: "http://backend-compute:8080"
+    strip_prefix: true
+
+  # Single backend -> stateful CRUD tests (create/get/update/delete + reset).
+  - path_prefix: "/data"
+    target_url: "http://backend-data:8080"
+    strip_prefix: true

@@ -1,0 +1,35 @@
+# 数据驱动：鉴权负向用例。新增一条攻击面 = 加一行，不改测试代码。
+# token_factory 对应 framework/jwt_utils.py 里的函数名。
+negative_cases:
+  - id: no_exp
+    desc: "token 无 exp 声明（网关强制要求 exp）"
+    token_factory: no_exp_token
+    expected_status: 401
+
+  - id: wrong_secret
+    desc: "用错误密钥签名"
+    token_factory: wrong_secret_token
+    expected_status: 401
+
+  - id: alg_none
+    desc: "算法混淆：alg=none 无签名伪造 🔒"
+    token_factory: alg_none_token
+    expected_status: 401
+    security: true
+
+  - id: alg_rs256
+    desc: "算法混淆：改用 RS256 伪造（只认 HS256）🔒"
+    token_factory: alg_rs256_token
+    expected_status: 401
+    security: true
+
+  - id: tampered
+    desc: "篡改 payload 不改签名"
+    token_factory: tampered_token
+    expected_status: 401
+    security: true
+
+  - id: expired
+    desc: "token 已过期"
+    token_factory: expired_token
+    expected_status: 401

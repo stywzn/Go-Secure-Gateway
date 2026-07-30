@@ -1,14 +1,37 @@
 server:
   port: ":8080"
+  read_timeout_seconds: 15
+  write_timeout_seconds: 15
+  idle_timeout_seconds: 60
 
 jwt:
+  # Prefer injecting this via the JWT_SECRET environment variable in real
+  # deployments; the value here is only a local development default.
   secret: "my-super-secret-gateway-key"
 
-# dynamic route table
+rate_limit:
+  rps: 2
+  burst: 5
+
+# Set to true ONLY for local development. Exposes /debug/token which mints
+# valid JWTs — never enable this in production.
+debug: true
+
+# Dynamic route table. Each route may point at a single target_url or a list
+# of targets (round-robin load balanced). strip_prefix removes the path prefix
+# before forwarding upstream.
 routes:
   - path_prefix: "/interaction"
     target_url: "http://localhost:8081"
-  - path_prefix: "storage"
-    target_url: "http://localhost:8082"
-  - path_prefix: "compute"
+    strip_prefix: false
+
+  - path_prefix: "/storage"
+    # Multiple backends are load-balanced round-robin.
+    targets:
+      - "http://localhost:8082"
+      - "http://localhost:8092"
+    strip_prefix: true
+
+  - path_prefix: "/compute"
     target_url: "http://localhost:8083"
+    strip_prefix: true

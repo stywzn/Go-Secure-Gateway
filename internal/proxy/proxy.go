@@ -1,70 +1,133 @@
 package proxy
 
 import (
-	"Go-Secure-Gateway/internal/metrics"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/http/httputil"
-	"net/url"
 	"strconv"
+	"strings"
 	"time"
+
+	"Go-Secure-Gateway/internal/config"
+	"Go-Secure-Gateway/internal/metrics"
+	"Go-Secure-Gateway/internal/middleware"
 )
 
+// ProxyEngine is a reverse proxy for a single route. It fronts one or more
+// upstream backends (round-robin), guards them with a circuit breaker, and
+// records request metrics.
 type ProxyEngine struct {
-	target *url.URL
+	route  config.RouteConfig
+	lb     *RoundRobinLB
 	proxy  *httputil.ReverseProxy
 	cb     *CircuitBreaker
+	logger *slog.Logger
 }
 
-func NewProxyEngine(targetURL string) (*ProxyEngine, error) {
-	target, err := url.Parse(targetURL)
+// NewProxyEngine builds a proxy engine for the given route.
+func NewProxyEngine(route config.RouteConfig, logger *slog.Logger) (*ProxyEngine, error) {
+	if logger == nil {
+		logger = slog.Default()
+	}
+
+	lb, err := NewRoundRobinLB(route.Backends())
 	if err != nil {
 		return nil, err
 	}
-	proxy := httputil.NewSingleHostReverseProxy(target)
-	cb := NewCircuitBreaker(5, 10*time.Second)
 
-	proxy.Transport = &http.Transport{
-		MaxIdleConns:          100,              // Max global idle connections
-		MaxIdleConnsPerHost:   100,              // Max idle connections per backend host
-		IdleConnTimeout:       90 * time.Second, // Timeout for keeping idle connections alive
-		TLSHandshakeTimeout:   10 * time.Second, // Timeout for TLS handshake
-		ExpectContinueTimeout: 1 * time.Second,
+	engine := &ProxyEngine{
+		route:  route,
+		lb:     lb,
+		cb:     NewCircuitBreaker(5, 10*time.Second),
+		logger: logger,
 	}
 
-	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
-		log.Printf("[Proxy Error] %v", err)
-		// TODO: Trigger Circuit Breaker metrics here
-		http.Error(w, "Backend service unavailable", http.StatusBadGateway)
+	rp := &httputil.ReverseProxy{
+		Director: engine.director,
+		Transport: &http.Transport{
+			MaxIdleConns:          100,
+			MaxIdleConnsPerHost:   100,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+		},
+		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			engine.logger.Error("upstream request failed",
+				"route", engine.route.PathPrefix,
+				"path", r.URL.Path,
+				"err", err,
+			)
+			// The statusWriter records this 502 as a failure, tripping the
+			// circuit breaker after enough consecutive backend errors.
+			http.Error(w, "Backend service unavailable", http.StatusBadGateway)
+		},
+	}
+	engine.proxy = rp
+
+	return engine, nil
+}
+
+// director rewrites the inbound request to point at the next chosen backend,
+// optionally stripping the route prefix and propagating the authenticated
+// user identity downstream.
+func (p *ProxyEngine) director(req *http.Request) {
+	target, err := p.lb.Next()
+	if err != nil {
+		// Validation guarantees at least one backend, so this is unexpected.
+		p.logger.Error("no backend available", "route", p.route.PathPrefix)
+		return
 	}
 
-	return &ProxyEngine{
-		target: target,
-		proxy:  proxy,
-		cb:     cb,
-	}, nil
+	req.URL.Scheme = target.Scheme
+	req.URL.Host = target.Host
+
+	path := req.URL.Path
+	if p.route.StripPrefix {
+		path = strings.TrimPrefix(path, p.route.PathPrefix)
+		if path == "" || !strings.HasPrefix(path, "/") {
+			path = "/" + path
+		}
+	}
+	req.URL.Path = singleJoiningSlash(target.Path, path)
+
+	// Set standard forwarding headers.
+	if req.Header.Get("X-Forwarded-Proto") == "" {
+		scheme := "http"
+		if req.TLS != nil {
+			scheme = "https"
+		}
+		req.Header.Set("X-Forwarded-Proto", scheme)
+	}
+	if req.Header.Get("X-Forwarded-Host") == "" {
+		req.Header.Set("X-Forwarded-Host", req.Host)
+	}
+
+	// Propagate the authenticated user id. Always delete any client-supplied
+	// value first so callers cannot spoof their identity to the backend.
+	req.Header.Del("X-User-Id")
+	if uid := middleware.UserIDFromContext(req.Context()); uid != "" {
+		req.Header.Set("X-User-Id", uid)
+	}
 }
 
 func (p *ProxyEngine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !p.cb.Allow() {
+		metrics.RequestCount.WithLabelValues(r.Method, p.route.PathPrefix, "503").Inc()
 		http.Error(w, "503 Service Unavailable (Circuit Open)", http.StatusServiceUnavailable)
 		return
 	}
 
-	// 2. Wrap ResponseWriter to capture status code
 	sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
 	start := time.Now()
 
-	// 3. Forward request to backend
 	p.proxy.ServeHTTP(sw, r)
 
-	// 4. Record Metrics
 	duration := time.Since(start).Seconds()
-	metrics.RequestCount.WithLabelValues(r.Method, r.URL.Path, strconv.Itoa(sw.status)).Inc()
-	metrics.RequestDuration.WithLabelValues(r.Method, r.URL.Path).Observe(duration)
+	// Use the stable route prefix (not the raw path) as the metric label to
+	// avoid unbounded Prometheus cardinality.
+	metrics.RequestCount.WithLabelValues(r.Method, p.route.PathPrefix, strconv.Itoa(sw.status)).Inc()
+	metrics.RequestDuration.WithLabelValues(r.Method, p.route.PathPrefix).Observe(duration)
 
-	// 5. Update Circuit Breaker based on response status
-	// Consider 5xx errors as failures, others as successes
 	if sw.status >= 500 {
 		p.cb.RecordFailure()
 	} else {
@@ -72,10 +135,16 @@ func (p *ProxyEngine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// 	proxy := httputil.NewSingleHostReverseProxy(targetURL)
-
-// 	return func(c *gin.Context) {
-// 		log.Printf("[Gin 路由转发] %s %s -> %s", c.Request.Method, c.Request.URL.Path, targetHost)
-// 		proxy.ServeHTTP(c.Writer, c.Request)
-// 	}
-// }
+// singleJoiningSlash joins two URL path segments with exactly one slash
+// between them (mirrors the helper in net/http/httputil).
+func singleJoiningSlash(a, b string) string {
+	aslash := strings.HasSuffix(a, "/")
+	bslash := strings.HasPrefix(b, "/")
+	switch {
+	case aslash && bslash:
+		return a + b[1:]
+	case !aslash && !bslash:
+		return a + "/" + b
+	}
+	return a + b
+}

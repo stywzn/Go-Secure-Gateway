@@ -3,63 +3,74 @@ package proxy
 import (
 	"errors"
 	"net/url"
+	"sync"
 	"sync/atomic"
 )
 
-// LoadBalancer defines the interface for selecting a backend server
+// LoadBalancer defines the interface for selecting a backend server.
 type LoadBalancer interface {
 	Next() (*url.URL, error)
 	AddBackend(target *url.URL)
 }
 
-// RoundRobinLB implements a lock-free round-robin load balancer
+// RoundRobinLB implements a round-robin load balancer with lock-free reads.
+//
+// The backend slice is stored in an atomic.Value and treated as immutable:
+// the fast routing path (Next) reads it without locking, while mutations
+// (AddBackend) take a mutex and publish a fresh copy (copy-on-write). This
+// keeps Next allocation- and lock-free under high concurrency while remaining
+// data-race free when backends change.
 type RoundRobinLB struct {
-	backends []*url.URL
-	// Use uint64 for atomic operations to ensure thread safety without Mutex locks.
-	// This is critical for high-concurrency gateway performance.
-	current uint64
+	backends atomic.Value // holds []*url.URL
+	current  uint64
+	writeMu  sync.Mutex // serializes copy-on-write mutations
 }
 
-// NewRoundRobinLB initializes a new round-robin load balancer
+// NewRoundRobinLB initializes a new round-robin load balancer.
 func NewRoundRobinLB(urls []string) (*RoundRobinLB, error) {
 	if len(urls) == 0 {
 		return nil, errors.New("backend urls cannot be empty")
 	}
 
-	var backends []*url.URL
+	backends := make([]*url.URL, 0, len(urls))
 	for _, u := range urls {
 		parsedURL, err := url.Parse(u)
 		if err != nil {
 			return nil, err
 		}
+		if parsedURL.Scheme == "" || parsedURL.Host == "" {
+			return nil, errors.New("backend url must be absolute (scheme + host): " + u)
+		}
 		backends = append(backends, parsedURL)
 	}
 
-	return &RoundRobinLB{
-		backends: backends,
-		current:  0,
-	}, nil
+	lb := &RoundRobinLB{}
+	lb.backends.Store(backends)
+	return lb, nil
 }
 
-// Next atomically returns the next backend URL to route the request to
+// Next atomically returns the next backend URL to route the request to.
 func (lb *RoundRobinLB) Next() (*url.URL, error) {
-	if len(lb.backends) == 0 {
+	backends, _ := lb.backends.Load().([]*url.URL)
+	if len(backends) == 0 {
 		return nil, errors.New("no available backends")
 	}
 
-	// Atomically increment the counter and get the new value.
-	// This avoids expensive Mutex locking under high concurrent traffic.
-	nextIndex := atomic.AddUint64(&lb.current, 1)
-
-	// Modulo operation to wrap around the slice length
-	target := lb.backends[nextIndex%uint64(len(lb.backends))]
-
-	return target, nil
+	// Subtract 1 so the first request maps to index 0 rather than 1.
+	nextIndex := atomic.AddUint64(&lb.current, 1) - 1
+	return backends[nextIndex%uint64(len(backends))], nil
 }
 
-// AddBackend allows dynamic addition of new backend nodes (e.g., from ETCD)
-// Note: In a fully dynamic system, modifying the slice itself would require a RWMutex,
-// but for the routing path (Next), we keep it as fast as possible.
+// AddBackend dynamically adds a new backend node (e.g. from service discovery).
+// It publishes a new slice via copy-on-write so concurrent Next calls always
+// observe a consistent, immutable snapshot.
 func (lb *RoundRobinLB) AddBackend(target *url.URL) {
-	lb.backends = append(lb.backends, target)
+	lb.writeMu.Lock()
+	defer lb.writeMu.Unlock()
+
+	old, _ := lb.backends.Load().([]*url.URL)
+	updated := make([]*url.URL, len(old), len(old)+1)
+	copy(updated, old)
+	updated = append(updated, target)
+	lb.backends.Store(updated)
 }

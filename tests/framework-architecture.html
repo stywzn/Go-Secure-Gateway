@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Go-Secure-Gateway 接口自动化框架 · 架构图</title>
+<style>
+  :root {
+    --ground: #f6f8fa;
+    --surface: #ffffff;
+    --surface-2: #eef2f6;
+    --ink: #16202b;
+    --muted: #5a6672;
+    --faint: #8593a0;
+    --border: #dde3ea;
+    --accent: #0a7688;      /* Go 青，加深，避免默认 acid 感 */
+    --accent-ink: #06525f;
+    --accent-wash: #e2f1f3;
+    --t-api: #2563eb;       /* 接口自动化 + CI */
+    --t-fault: #b4530a;     /* 故障注入 */
+    --t-perf: #7c3aed;      /* 性能压测 */
+    --t-contract: #0f766e;  /* 契约 + 监控 */
+    --shadow: 0 1px 2px rgba(20,32,43,.06), 0 8px 24px rgba(20,32,43,.06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #0d1117; --surface: #161c24; --surface-2: #1c242e;
+      --ink: #e7eef5; --muted: #9aa7b4; --faint: #6b7885; --border: #29323d;
+      --accent: #34c0d4; --accent-ink: #7fe0ec; --accent-wash: #12303541;
+      --t-api: #6ea8ff; --t-fault: #e6975a; --t-perf: #b492f5; --t-contract: #4fc9bd;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #0d1117; --surface: #161c24; --surface-2: #1c242e;
+    --ink: #e7eef5; --muted: #9aa7b4; --faint: #6b7885; --border: #29323d;
+    --accent: #34c0d4; --accent-ink: #7fe0ec; --accent-wash: #12303541;
+    --t-api: #6ea8ff; --t-fault: #e6975a; --t-perf: #b492f5; --t-contract: #4fc9bd;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.35);
+  }
+  :root[data-theme="light"] {
+    --ground: #f6f8fa; --surface: #ffffff; --surface-2: #eef2f6;
+    --ink: #16202b; --muted: #5a6672; --faint: #8593a0; --border: #dde3ea;
+    --accent: #0a7688; --accent-ink: #06525f; --accent-wash: #e2f1f3;
+    --t-api: #2563eb; --t-fault: #b4530a; --t-perf: #7c3aed; --t-contract: #0f766e;
+    --shadow: 0 1px 2px rgba(20,32,43,.06), 0 8px 24px rgba(20,32,43,.06);
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--ground); color: var(--ink);
+    font-family: "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, "Segoe UI", sans-serif;
+    line-height: 1.55; letter-spacing: .01em;
+    padding: clamp(20px, 4vw, 56px);
+  }
+  .mono { font-family: ui-monospace, "Cascadia Code", "SF Mono", Consolas, "Liberation Mono", monospace; }
+  .wrap { max-width: 1120px; margin: 0 auto; }
+
+  /* ---- header ---- */
+  header { margin-bottom: 32px; }
+  .eyebrow {
+    font-size: 12px; letter-spacing: .16em; text-transform: uppercase;
+    color: var(--accent-ink); font-weight: 700;
+  }
+  h1 {
+    font-size: clamp(26px, 4vw, 40px); line-height: 1.12; margin: 8px 0 10px;
+    text-wrap: balance; font-weight: 800; letter-spacing: -.01em;
+  }
+  .sub { color: var(--muted); font-size: clamp(14px, 1.6vw, 16px); max-width: 62ch; }
+  .sub b { color: var(--ink); font-weight: 700; }
+  .stack-line { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px; }
+  .pill {
+    font-size: 12.5px; padding: 4px 10px; border-radius: 999px;
+    background: var(--surface); border: 1px solid var(--border); color: var(--muted);
+  }
+
+  /* ---- diagram ---- */
+  .diagram { display: flex; flex-direction: column; align-items: stretch; gap: 0; }
+  .layer {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 14px; padding: 16px 18px; box-shadow: var(--shadow);
+  }
+  .layer-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+  .layer-title { font-weight: 700; font-size: 15px; }
+  .layer-tag {
+    font-size: 11px; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--faint); font-weight: 700;
+  }
+  .layer-note { font-size: 12.5px; color: var(--muted); margin-left: auto; }
+
+  .nodes { display: flex; flex-wrap: wrap; gap: 8px; }
+  .node {
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px;
+    padding: 7px 11px; font-size: 13px; display: flex; align-items: center; gap: 7px;
+  }
+  .node .k { font-size: 11px; color: var(--faint); }
+  .node.core { border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); }
+
+  /* connector between layers */
+  .conn {
+    align-self: center; display: flex; flex-direction: column; align-items: center;
+    padding: 4px 0; color: var(--muted);
+  }
+  .conn .bar { width: 2px; height: 16px; background: var(--border); }
+  .conn .lbl {
+    font-size: 12px; padding: 2px 10px; border-radius: 999px;
+    background: var(--accent-wash); color: var(--accent-ink);
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+  .conn .arw { font-size: 13px; line-height: 1; color: var(--accent); }
+
+  /* the SUT — gateway pipeline (a real ordered sequence) */
+  .layer.sut { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+  .pipeline { display: flex; flex-wrap: wrap; align-items: stretch; gap: 6px; }
+  .stage {
+    flex: 1 1 120px; min-width: 110px; background: var(--surface-2);
+    border: 1px solid var(--border); border-radius: 10px; padding: 10px 11px;
+    position: relative;
+  }
+  .stage .no {
+    font-size: 11px; font-weight: 800; color: var(--accent);
+    font-variant-numeric: tabular-nums;
+  }
+  .stage .nm { font-size: 13.5px; font-weight: 600; margin-top: 2px; }
+  .stage .mod { font-size: 11px; color: var(--faint); margin-top: 4px; }
+  .stage .en { font-size: 11px; color: var(--muted); }
+  .flowmark { color: var(--faint); align-self: center; font-size: 14px; }
+
+  /* ---- highlight tracks ---- */
+  .section-h { margin: 40px 0 16px; display: flex; align-items: baseline; gap: 12px; }
+  .section-h h2 { font-size: 20px; margin: 0; font-weight: 800; letter-spacing: -.01em; }
+  .section-h .hint { font-size: 13px; color: var(--muted); }
+  .tracks { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+  .track {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+    padding: 16px 16px 15px; box-shadow: var(--shadow);
+    border-top: 3px solid var(--tc);
+  }
+  .track h3 { margin: 0 0 6px; font-size: 15px; font-weight: 700; }
+  .track .lead { font-size: 12.5px; color: var(--tc); font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+  .track ul { margin: 8px 0 0; padding-left: 18px; }
+  .track li { font-size: 13px; color: var(--muted); margin: 4px 0; }
+  .track li b { color: var(--ink); font-weight: 600; }
+
+  /* ---- callout: isolation strategy ---- */
+  .callout {
+    margin-top: 20px; background: var(--surface); border: 1px solid var(--border);
+    border-left: 3px solid var(--accent); border-radius: 12px; padding: 16px 18px;
+    box-shadow: var(--shadow);
+  }
+  .callout h3 { margin: 0 0 10px; font-size: 15px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 640px) { .grid2 { grid-template-columns: 1fr; } }
+  .iso { border: 1px solid var(--border); border-radius: 10px; padding: 12px 13px; background: var(--surface-2); }
+  .iso .tt { font-weight: 700; font-size: 13.5px; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+  .badge { font-size: 11px; padding: 2px 8px; border-radius: 6px; font-weight: 700; }
+  .badge.par { background: color-mix(in srgb, var(--t-contract) 18%, transparent); color: var(--t-contract); }
+  .badge.ser { background: color-mix(in srgb, var(--t-fault) 20%, transparent); color: var(--t-fault); }
+  .iso p { margin: 4px 0 0; font-size: 12.5px; color: var(--muted); }
+
+  /* ---- narration ---- */
+  .say { margin-top: 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; box-shadow: var(--shadow); }
+  .say h3 { margin: 0 0 8px; font-size: 15px; }
+  .say p { margin: 0; font-size: 14px; color: var(--ink); }
+  .say .q { color: var(--accent-ink); font-weight: 700; }
+
+  footer { margin-top: 34px; color: var(--faint); font-size: 12px; text-align: center; }
+
+  /* theme toggle */
+  .toggle {
+    position: fixed; top: 14px; right: 14px; z-index: 10;
+    background: var(--surface); border: 1px solid var(--border); color: var(--muted);
+    border-radius: 999px; padding: 6px 12px; font-size: 12px; cursor: pointer;
+  }
+  .toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+</head>
+<body>
+<button class="toggle" id="tg" aria-label="切换深浅色">◐ 主题</button>
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">接口自动化测试框架 · 个人项目</div>
+    <h1>Go-Secure-Gateway 接口自动化框架</h1>
+    <p class="sub">被测系统是一个 <b>Go 微服务 API 网关</b>(鉴权 / 限流 / 负载均衡 / 熔断 / 可观测)。
+      框架用 <b>Python + pytest</b> 分层设计,覆盖接口自动化、故障注入、性能压测、契约与监控四条主线。</p>
+    <div class="stack-line">
+      <span class="pill mono">Python · pytest</span>
+      <span class="pill mono">requests · PyJWT</span>
+      <span class="pill mono">pytest-xdist 并行</span>
+      <span class="pill mono">Allure 报告</span>
+      <span class="pill mono">Docker Compose</span>
+      <span class="pill mono">GitHub Actions</span>
+      <span class="pill mono">k6 · locust</span>
+    </div>
+  </header>
+
+  <!-- ============ 架构图 ============ -->
+  <div class="diagram">
+
+    <!-- 用例层 -->
+    <div class="layer">
+      <div class="layer-head">
+        <span class="layer-title">测试用例层</span>
+        <span class="layer-tag mono">testcases/ · contract/</span>
+        <span class="layer-note">只表达业务意图,样板下沉到框架层</span>
+      </div>
+      <div class="nodes">
+        <span class="node">鉴权 <span class="k mono">test_auth</span></span>
+        <span class="node">限流 <span class="k mono">test_ratelimit</span></span>
+        <span class="node">路由 <span class="k mono">test_routing</span></span>
+        <span class="node">负载均衡 <span class="k mono">test_loadbalance</span></span>
+        <span class="node">熔断 <span class="k mono">test_circuitbreaker</span></span>
+        <span class="node">超时 <span class="k mono">test_timeout</span></span>
+        <span class="node">可观测 <span class="k mono">test_ops_metrics</span></span>
+        <span class="node">契约 <span class="k mono">test_openapi_contract</span></span>
+      </div>
+    </div>
+
+    <div class="conn"><div class="bar"></div><span class="lbl">依赖注入 · fixtures</span><div class="bar"></div><span class="arw">▼</span></div>
+
+    <!-- 框架核心层 -->
+    <div class="layer">
+      <div class="layer-head">
+        <span class="layer-title">框架核心层</span>
+        <span class="layer-tag mono">framework/</span>
+        <span class="layer-note">与用例解耦,可复用 · 换环境零改代码</span>
+      </div>
+      <div class="nodes">
+        <span class="node core"><b>config</b><span class="k">环境配置(全走环境变量)</span></span>
+        <span class="node core"><b>client</b><span class="k">会话封装 · 独立源 IP</span></span>
+        <span class="node core"><b>jwt_utils</b><span class="k">6 类正 / 负向 token</span></span>
+        <span class="node core"><b>assertions</b><span class="k">状态码 · 轮询 · 指标增长</span></span>
+        <span class="node core"><b>prometheus</b><span class="k">/metrics 解析</span></span>
+        <span class="node">data/*.yaml <span class="k">数据驱动</span></span>
+      </div>
+    </div>
+
+    <div class="conn"><div class="bar"></div><span class="lbl mono">HTTP: Bearer JWT + X-Forwarded-For</span><div class="bar"></div><span class="arw">▼</span></div>
+
+    <!-- 被测系统:网关处理流水线(真实有序) -->
+    <div class="layer sut">
+      <div class="layer-head">
+        <span class="layer-title">被测系统(SUT) · Go API 网关</span>
+        <span class="layer-tag mono">:8080</span>
+        <span class="layer-note">请求依次经过下列处理阶段</span>
+      </div>
+      <div class="pipeline">
+        <div class="stage"><div class="no mono">01</div><div class="nm">限流</div><div class="en mono">rate limit</div><div class="mod">按 IP 令牌桶</div></div>
+        <div class="flowmark">›</div>
+        <div class="stage"><div class="no mono">02</div><div class="nm">鉴权</div><div class="en mono">JWT · HS256</div><div class="mod">只认 HS256 + 强制 exp</div></div>
+        <div class="flowmark">›</div>
+        <div class="stage"><div class="no mono">03</div><div class="nm">路由 / 反代</div><div class="en mono">reverse proxy</div><div class="mod">前缀剥离 · 身份注入</div></div>
+        <div class="flowmark">›</div>
+        <div class="stage"><div class="no mono">04</div><div class="nm">负载均衡</div><div class="en mono">round-robin</div><div class="mod">多副本轮询</div></div>
+        <div class="flowmark">›</div>
+        <div class="stage"><div class="no mono">05</div><div class="nm">熔断</div><div class="en mono">circuit breaker</div><div class="mod">closed→open→half-open</div></div>
+        <div class="flowmark">›</div>
+        <div class="stage"><div class="no mono">06</div><div class="nm">指标</div><div class="en mono">/metrics</div><div class="mod">Prometheus 计数 / 直方图</div></div>
+      </div>
+    </div>
+
+    <div class="conn"><div class="bar"></div><span class="lbl">转发</span><div class="bar"></div><span class="arw">▼</span></div>
+
+    <!-- 可控 mock 后端 -->
+    <div class="layer">
+      <div class="layer-head">
+        <span class="layer-title">可控 Mock 后端(测试桩)</span>
+        <span class="layer-tag mono">test doubles</span>
+        <span class="layer-note">确定性 · 可稳定复现异常路径,零 flaky</span>
+      </div>
+      <div class="nodes">
+        <span class="node mono">?status=503 <span class="k">强制状态码</span></span>
+        <span class="node mono">?delay=2s <span class="k">注入延迟</span></span>
+        <span class="node mono">CRUD /items <span class="k">有状态流程</span></span>
+        <span class="node mono">POST /_reset <span class="k">用例前清库</span></span>
+        <span class="node">storage-a / storage-b <span class="k">轮询双副本</span></span>
+      </div>
+    </div>
+
+    <div class="conn"><div class="bar"></div><span class="lbl">docker compose up --wait · 一键起栈</span><div class="bar"></div><span class="arw">▼</span></div>
+
+    <!-- CI/CD -->
+    <div class="layer">
+      <div class="layer-head">
+        <span class="layer-title">CI / 报告</span>
+        <span class="layer-tag mono">.github/workflows/e2e-tests.yml</span>
+        <span class="layer-note">挂在每次 push / PR 上做门禁</span>
+      </div>
+      <div class="nodes">
+        <span class="node">① 起被测栈 <span class="k mono">compose --wait</span></span>
+        <span class="node">② 阶段 A:并行 <span class="k mono">-m "not breaker" -n auto</span></span>
+        <span class="node">③ 阶段 B:熔断串行 <span class="k mono">-m breaker -p no:xdist</span></span>
+        <span class="node">④ 归档 <span class="k mono">Allure 报告</span></span>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ============ 四条主线 ============ -->
+  <div class="section-h">
+    <h2>四条能讲深的主线</h2>
+    <span class="hint">每条都对应上面某一层 / 某几个模块</span>
+  </div>
+  <div class="tracks">
+    <div class="track" style="--tc: var(--t-api)">
+      <div class="lead">主线一</div>
+      <h3>接口自动化 + CI 门禁</h3>
+      <ul>
+        <li><b>分层框架</b>:用例 / 数据 / 断言 / 报告解耦</li>
+        <li><b>数据驱动</b>:负向用例写在 yaml,加一行=加一个攻击面</li>
+        <li><b>一键起栈 + 两阶段执行</b>,Allure 报告,做成 PR 门禁</li>
+      </ul>
+    </div>
+    <div class="track" style="--tc: var(--t-fault)">
+      <div class="lead">主线二 · 最见深度</div>
+      <h3>故障注入</h3>
+      <ul>
+        <li><b>熔断状态机</b>:连续 5xx 打开 → 冷却 → 半开探测 → 恢复,全流程断言</li>
+        <li><b>判定技巧</b>:用响应头有无 <span class="mono">X-Served-By</span> 区分"网关短路"与"后端错误"</li>
+        <li><b>延迟注入</b>,并记录"上游无独立超时"这一风险</li>
+      </ul>
+    </div>
+    <div class="track" style="--tc: var(--t-perf)">
+      <div class="lead">主线三</div>
+      <h3>性能 / 限流压测</h3>
+      <ul>
+        <li><b>k6</b> 以 4× 阈值加压,断言放行流量 <b>p95</b> 与 <b>429 比例</b></li>
+        <li>退出码可接 CI,当<b>性能门禁</b></li>
+        <li>对比单 IP / 多 IP 两种画像,佐证限流键设计</li>
+      </ul>
+    </div>
+    <div class="track" style="--tc: var(--t-contract)">
+      <div class="lead">主线四</div>
+      <h3>契约 + 监控断言</h3>
+      <ul>
+        <li><b>契约测试</b>:拿 OpenAPI schema 校验响应,面向契约而非实现</li>
+        <li><b>监控断言</b>:发请求前后读 <span class="mono">/metrics</span>,断言计数器确实 +1</li>
+        <li>校验指标 label 用路由前缀(<b>高基数防护</b>)</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============ 隔离策略 callout ============ -->
+  <div class="callout">
+    <h3>设计亮点:并行 / 串行隔离策略(避免 flaky)</h3>
+    <div class="grid2">
+      <div class="iso">
+        <div class="tt">按客户端隔离 <span class="badge par">可并行</span></div>
+        <p>鉴权 / 路由 / 负载均衡 / 限流 / 契约 / 监控。每个 client 用<b>独立源 IP</b>(<span class="mono">X-Forwarded-For</span>),限流桶天然隔离 → <span class="mono">-n auto</span> 并行提速。</p>
+      </div>
+      <div class="iso">
+        <div class="tt">服务端共享状态 <span class="badge ser">须串行</span></div>
+        <p>熔断器是<b>按路由的全局状态</b>,打开会波及所有同路由请求 → 独占路由、串行执行、用例前后复位到 closed。</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 一句话叙述 ============ -->
+  <div class="say">
+    <h3>面试一口气叙述模板</h3>
+    <p><span class="q">S/T ›</span> 一个承担鉴权、限流、负载均衡、熔断的 Go API 网关,改配置全靠手工验证,缺自动化回归。我从 0 搭接口自动化框架并接入 CI 做 PR 门禁。<br>
+    <span class="q">A ›</span> 分层设计把样板下沉;数据驱动写负向与安全用例;<b>用可控测试桩做故障注入</b>,稳定复现熔断状态机与超时;引入 <b>OpenAPI 契约校验</b>和 <b>Prometheus 监控断言</b>;用 docker-compose 一键起栈 + GitHub Actions 两阶段执行 + Allure 报告。<br>
+    <span class="q">R ›</span> 40+ 用例覆盖 6 大模块,回归从手工数十分钟降到自动数十秒,做成 PR 门禁;额外产出 4 条有依据的风险评估(上游无超时 / TrustedProxies / metrics 无鉴权 / LB 无健康检查)。</p>
+  </div>
+
+  <footer>Go-Secure-Gateway · 接口自动化测试框架架构图 · 可离线打开</footer>
+</div>
+
+<script>
+  (function () {
+    var btn = document.getElementById('tg');
+    btn.addEventListener('click', function () {
+      var cur = document.documentElement.getAttribute('data-theme');
+      var next = cur === 'dark' ? 'light'
+               : cur === 'light' ? 'dark'
+               : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'light' : 'dark');
+      document.documentElement.setAttribute('data-theme', next);
+    });
+  })();
+</script>
+</body>
+</html>

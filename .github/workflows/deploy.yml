@@ -1,0 +1,58 @@
+name: Deploy to Kubernetes
+
+# Manual deployment to a cluster. Requires two repository secrets:
+#   KUBE_CONFIG  - base64-encoded kubeconfig for the target cluster
+#   JWT_SECRET   - the production JWT signing secret
+#
+# The image is expected to have been published by the Release workflow.
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag to deploy (e.g. v1.0.0 or latest)"
+        required: true
+        default: "latest"
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Guard on required secrets
+        run: |
+          if [ -z "${{ secrets.KUBE_CONFIG }}" ] || [ -z "${{ secrets.JWT_SECRET }}" ]; then
+            echo "::error::KUBE_CONFIG and JWT_SECRET secrets must be configured."
+            exit 1
+          fi
+
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p "$HOME/.kube"
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+
+      - name: Apply config and secret
+        run: |
+          kubectl apply -f k8s/configmap.yaml
+          kubectl create secret generic gateway-secret \
+            --from-literal=jwt-secret="${{ secrets.JWT_SECRET }}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Apply workloads
+        run: |
+          kubectl apply -f k8s/deployment.yaml
+          kubectl apply -f k8s/service.yaml
+
+      - name: Roll out the requested image
+        run: |
+          IMAGE="ghcr.io/${{ github.repository }}:${{ inputs.image_tag }}"
+          echo "Deploying image: $IMAGE"
+          kubectl set image deployment/secure-gateway gateway="$IMAGE"
+
+      - name: Wait for rollout
+        run: kubectl rollout status deployment/secure-gateway --timeout=120s

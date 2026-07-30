@@ -1,0 +1,195 @@
+openapi: 3.0.3
+info:
+  title: Go-Secure-Gateway API
+  version: 1.0.0
+  description: |
+    API surface exposed by the gateway. Use this spec to build an automated
+    test framework: import it into Postman/Bruno, generate a client, or drive
+    schema-based assertions.
+
+    The backends behind the protected routes are controllable test doubles:
+      - any request may carry `?status=<code>` to force an HTTP status
+        (e.g. `?status=503` to trip the circuit breaker), and/or
+      - `?delay=<duration>` (e.g. `?delay=2s`) to inject latency.
+
+servers:
+  - url: http://localhost:8080
+    description: Gateway (direct)
+  - url: http://localhost:8088/api
+    description: Via the demo frontend's nginx proxy
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    forceStatus:
+      name: status
+      in: query
+      required: false
+      schema: { type: integer, minimum: 100, maximum: 599 }
+      description: Force the backend to return this HTTP status.
+    injectDelay:
+      name: delay
+      in: query
+      required: false
+      schema: { type: string, example: "2s" }
+      description: Make the backend sleep this long before responding (Go duration).
+  responses:
+    Unauthorized:
+      description: Missing / malformed / expired token
+      content:
+        application/json:
+          schema:
+            type: object
+            properties: { error: { type: string } }
+    TooManyRequests:
+      description: Per-IP rate limit exceeded
+      content:
+        application/json:
+          schema:
+            type: object
+            properties: { error: { type: string } }
+    CircuitOpen:
+      description: Circuit breaker is open for this route
+      content:
+        text/plain: { schema: { type: string } }
+
+security:
+  - bearerAuth: []
+
+paths:
+  /healthz:
+    get:
+      summary: Liveness probe
+      security: []
+      responses:
+        "200": { description: OK }
+  /readyz:
+    get:
+      summary: Readiness probe (503 during graceful shutdown)
+      security: []
+      responses:
+        "200": { description: Ready }
+        "503": { description: Not ready }
+  /metrics:
+    get:
+      summary: Prometheus metrics (public)
+      security: []
+      responses:
+        "200": { description: Prometheus exposition format }
+  /debug/token:
+    get:
+      summary: Mint a development JWT (only when debug=true)
+      security: []
+      responses:
+        "200":
+          description: A signed token
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { token: { type: string } }
+        "404": { description: Debug mode disabled }
+
+  /interaction/ping:
+    get:
+      summary: Echo endpoint, prefix NOT stripped (auth / header-propagation tests)
+      parameters:
+        - $ref: "#/components/parameters/forceStatus"
+        - $ref: "#/components/parameters/injectDelay"
+      responses:
+        "200": { description: Echoed request info }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "503": { $ref: "#/components/responses/CircuitOpen" }
+
+  /storage/ping:
+    get:
+      summary: Echo endpoint on the load-balanced storage backend (2 replicas)
+      description: >
+        Repeated calls round-robin between replicas; assert the `X-Served-By`
+        response header alternates to verify load balancing.
+      responses:
+        "200": { description: Echoed request info (see X-Served-By header) }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /data/items:
+    get:
+      summary: List items (in-memory store on the single-backend data route)
+      responses:
+        "200":
+          description: Item list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { type: object } }
+                  count: { type: integer }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      summary: Create an item
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        "201":
+          description: Created item (with assigned id)
+          content:
+            application/json:
+              schema: { type: object }
+        "400": { description: Invalid JSON body }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /data/items/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer }
+    get:
+      summary: Get an item by id
+      responses:
+        "200": { description: The item, content: { application/json: { schema: { type: object } } } }
+        "404": { description: Not found }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    put:
+      summary: Replace an item
+      requestBody:
+        content: { application/json: { schema: { type: object } } }
+      responses:
+        "200": { description: Updated item }
+        "404": { description: Not found }
+    delete:
+      summary: Delete an item
+      responses:
+        "204": { description: Deleted }
+        "404": { description: Not found }
+
+  /data/_reset:
+    post:
+      summary: Clear the data backend's in-memory store (call before each test)
+      responses:
+        "200":
+          description: Store cleared
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { reset: { type: boolean } }
+
+  /compute/run:
+    get:
+      summary: Echo endpoint on the compute backend (prefix stripped)
+      parameters:
+        - $ref: "#/components/parameters/forceStatus"
+        - $ref: "#/components/parameters/injectDelay"
+      responses:
+        "200": { description: Echoed request info }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "503": { $ref: "#/components/responses/CircuitOpen" }

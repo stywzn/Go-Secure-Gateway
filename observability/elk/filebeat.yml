@@ -1,0 +1,18 @@
+# Filebeat ships container logs to Elasticsearch (the "B" in an EFK/ELK stack).
+# Used only by the standby `logging-elk` compose profile.
+filebeat.autodiscover:
+  providers:
+    - type: docker
+      hints.enabled: true
+
+processors:
+  - add_docker_metadata: ~
+
+output.elasticsearch:
+  hosts: ["http://elasticsearch:9200"]
+
+setup.kibana:
+  host: "http://kibana:5601"
+
+# Reduce noise; container stdout is already structured JSON from the gateway.
+logging.level: warning

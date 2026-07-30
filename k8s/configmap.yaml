@@ -1,18 +1,38 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: gateway-config    
-data: 
+  name: gateway-config
+data:
   config.yaml: |
-    server: 
+    server:
       port: ":8080"
-    jwt:
-      secret: "k8s-super-secret-key-123456"
+      read_timeout_seconds: 15
+      write_timeout_seconds: 15
+      idle_timeout_seconds: 60
+    rate_limit:
+      rps: 50
+      burst: 100
+    debug: false
+    # jwt.secret is intentionally omitted here — it is injected via the
+    # JWT_SECRET environment variable from a Kubernetes Secret.
     routes:
-      # target_url  变成 微服务在 k8s 集群里的名字
-      -path_prefix: "/interaction"
+      # target_url points at each microservice's in-cluster Service name.
+      - path_prefix: "/interaction"
         target_url: "http://interaction-service:8080"
-      -path_prefix: "storage"
+        strip_prefix: false
+      - path_prefix: "/storage"
         target_url: "http://storage-service:8080"
-      -path_prefix: "compute"
+        strip_prefix: true
+      - path_prefix: "/compute"
         target_url: "http://compute-service:8080"
+        strip_prefix: true
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: gateway-secret
+type: Opaque
+stringData:
+  # Replace with a strong, randomly generated secret in real deployments,
+  # e.g. `kubectl create secret generic gateway-secret --from-literal=jwt-secret=$(openssl rand -base64 32)`.
+  jwt-secret: "k8s-super-secret-key-123456"

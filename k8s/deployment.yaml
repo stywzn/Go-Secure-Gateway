@@ -5,7 +5,7 @@ metadata:
   labels:
     app: gateway
 spec:
-  replicas: 2 #启动 2 个网关实例做高可用
+  replicas: 2 # 2 gateway instances for high availability
   selector:
     matchLabels:
       app: gateway
@@ -14,36 +14,64 @@ spec:
       labels:
         app: gateway
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
       containers:
-      - name: gateway
-        image: my-secure-gateway:v1.0  # Dockerfile 打包的名字
-        imagePullPolicy: IfNotPresent
-        ports:
-        - containerPort: 8080
-        
-        # 挂载配置目录
-        volumeMounts:
-        - name: config-volume
-          mountPath: /root/configs # 对应 Dockerfile 里的工作目录
-          
-        # 存活探针 (如果网关死锁了，K8s 会自动重启它)
-        livenessProbe:
-          httpGet:
-            path: /healthz
-            port: 8080
-          initialDelaySeconds: 5
-          periodSeconds: 10
-          
-        # 就绪探针 (只有返回 200，K8s 才会把流量放给这个节点)
-        readinessProbe:
-          httpGet:
-            path: /readyz
-            port: 8080
-          initialDelaySeconds: 2
-          periodSeconds: 5
-          
-      # 声明配置卷
+        - name: gateway
+          image: my-secure-gateway:v1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+
+          # JWT secret is injected from a Secret, not baked into the config.
+          env:
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: gateway-secret
+                  key: jwt-secret
+            - name: CONFIG_PATH
+              value: /app/configs/config.yaml
+
+          # Mount config to match the container WORKDIR (/app).
+          volumeMounts:
+            - name: config-volume
+              mountPath: /app/configs
+              readOnly: true
+
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+          # Liveness: restart the pod if the gateway deadlocks.
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+
+          # Readiness: only send traffic once /readyz returns 200. During
+          # graceful shutdown the gateway flips this to 503 so the pod drains.
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+            initialDelaySeconds: 2
+            periodSeconds: 5
+
       volumes:
-      - name: config-volume
-        configMap:
-          name: gateway-config
+        - name: config-volume
+          configMap:
+            name: gateway-config

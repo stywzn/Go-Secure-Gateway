@@ -1,0 +1,77 @@
+# 接口自动化 E2E:一键起被测栈 → 分阶段跑 pytest → 生成 Allure 报告。
+# 这是"自动化落地到 CI、做成 PR 门禁"的直接证据(STAR 里的 Action/Result)。
+name: e2e-tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  api-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install test deps
+        run: pip install -r tests/requirements.txt
+
+      # 一键起被测栈(网关 + 可控 mock 后端)。compose 已配 healthcheck,
+      # --wait 会等到全部服务 healthy 再返回。
+      - name: Start gateway stack
+        run: docker compose up --build -d --wait
+
+      - name: Wait for gateway readiness
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8080/healthz; then echo " ready"; exit 0; fi
+            sleep 2
+          done
+          echo "gateway not ready"; docker compose logs; exit 1
+
+      # 阶段 A:并行跑所有"per-IP 隔离、彼此无共享状态"的用例(快)。
+      # 排除 breaker(按路由共享状态,必须串行隔离)。
+      - name: Run parallel suite (exclude breaker)
+        env:
+          GATEWAY_BASE_URL: http://localhost:8080
+          GATEWAY_JWT_SECRET: compose-dev-secret
+        run: |
+          pytest tests -m "not breaker" -n auto \
+            --alluredir=allure-results
+
+      # 阶段 B:串行跑熔断状态机用例(独占路由 + 冷却等待)。
+      - name: Run circuit-breaker suite (serial)
+        env:
+          GATEWAY_BASE_URL: http://localhost:8080
+          GATEWAY_JWT_SECRET: compose-dev-secret
+        run: |
+          pytest tests -m "breaker" -p no:xdist \
+            --alluredir=allure-results
+
+      - name: Dump gateway logs on failure
+        if: failure()
+        run: docker compose logs gateway
+
+      - name: Generate Allure report
+        if: always()
+        uses: simple-elf/allure-report-action@v1.9
+        with:
+          allure_results: allure-results
+          allure_report: allure-report
+
+      - name: Upload Allure report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-report
+          path: allure-report
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

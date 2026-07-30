@@ -1,0 +1,9 @@
+# 接口自动化框架依赖（Python 3.10+）
+requests==2.32.3          # HTTP 客户端
+PyJWT==2.9.0              # 构造/伪造各类 JWT（正向 + 负向 + 算法混淆）
+cryptography==43.0.1      # RS256 伪造（算法混淆攻击测试用）
+PyYAML==6.0.2            # 数据驱动用例（yaml 参数化）
+jsonschema==4.23.0       # OpenAPI 契约校验
+pytest==8.3.3
+pytest-xdist==3.6.1       # 并行执行（-n auto），顺带验证并发/限流隔离
+allure-pytest==2.13.5     # Allure 报告

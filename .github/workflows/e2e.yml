@@ -1,0 +1,46 @@
+name: E2E
+
+# Brings up the full stack and runs the black-box API test suite against it.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: e2e/go.mod
+          cache-dependency-path: e2e/go.sum
+
+      - name: Start the stack
+        run: docker compose up -d --build
+
+      - name: Wait for the gateway to be ready
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8080/readyz >/dev/null; then
+              echo "gateway ready"; exit 0
+            fi
+            sleep 2
+          done
+          echo "gateway did not become ready"; exit 1
+
+      - name: Run e2e suite
+        working-directory: e2e
+        run: go test ./tests/... -count=1 -v
+
+      - name: Dump logs on failure
+        if: failure()
+        run: docker compose logs --tail=200
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

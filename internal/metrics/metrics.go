@@ -12,7 +12,9 @@ var (
 			Name: "gateway_http_requests_total",
 			Help: "Total number of HTTP requests processed by the gateway",
 		},
-		[]string{"method", "path", "status"},
+		// "route" is the stable route prefix, NOT the raw request path, to
+		// keep Prometheus label cardinality bounded.
+		[]string{"method", "route", "status"},
 	)
 
 	// RequestDuration tracks the latency of HTTP requests
@@ -22,6 +24,6 @@ var (
 			Help:    "Latency of HTTP requests in seconds",
 			Buckets: prometheus.DefBuckets, // Default buckets: 0.005, 0.01, 0.025... 10
 		},
-		[]string{"method", "path"},
+		[]string{"method", "route"},
 	)
 )

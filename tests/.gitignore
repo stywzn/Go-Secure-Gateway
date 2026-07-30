@@ -1,0 +1,13 @@
+# Python
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+
+# 本地下载的 Allure CLI（40MB，可从阿里云镜像重新下载，见 reports/README.md）
+tools/
+
+# 可重新生成的测试产物
+reports/allure-results/
+# 单文件报告较大(~4.7MB)：默认忽略；若要放进作品集仓库，删掉下一行即可
+reports/allure-report.html

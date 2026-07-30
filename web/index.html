@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Go-Secure-Gateway · Demo</title>
+  <style>
+    :root {
+      --bg: #0f1420; --panel: #171d2b; --panel2: #1e2637; --border: #2a3448;
+      --text: #e6ebf5; --muted: #8b97ad; --accent: #4f8cff; --accent2: #22c55e;
+      --danger: #ef4444; --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #f4f6fb; --panel: #ffffff; --panel2: #f0f3f9; --border: #dde3ee;
+        --text: #16202e; --muted: #5a6577; --accent: #2563eb;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: system-ui, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg); color: var(--text); line-height: 1.5;
+    }
+    header {
+      padding: 28px 20px; border-bottom: 1px solid var(--border);
+      background: linear-gradient(180deg, var(--panel), transparent);
+    }
+    .wrap { max-width: 900px; margin: 0 auto; padding: 20px; }
+    h1 { margin: 0 0 4px; font-size: 22px; }
+    h1 .lock { color: var(--accent2); }
+    .sub { color: var(--muted); font-size: 14px; margin: 0; }
+    .grid { display: grid; grid-template-columns: 1fr; gap: 16px; }
+    @media (min-width: 720px) { .grid { grid-template-columns: 1fr 1fr; } }
+    .card {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 12px; padding: 18px;
+    }
+    .card h2 { margin: 0 0 12px; font-size: 14px; text-transform: uppercase;
+      letter-spacing: .06em; color: var(--muted); }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    button {
+      background: var(--accent); color: #fff; border: 0; border-radius: 8px;
+      padding: 9px 14px; font-size: 14px; cursor: pointer; font-weight: 600;
+    }
+    button:hover { filter: brightness(1.08); }
+    button.ghost { background: var(--panel2); color: var(--text); border: 1px solid var(--border); }
+    button.small { padding: 6px 10px; font-size: 13px; }
+    input[type=text] {
+      flex: 1; min-width: 120px; background: var(--panel2); color: var(--text);
+      border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px;
+      font-family: var(--mono); font-size: 13px;
+    }
+    label.check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+    .status-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); display: inline-block; }
+    .status-dot.up { background: var(--accent2); box-shadow: 0 0 8px var(--accent2); }
+    .status-dot.down { background: var(--danger); }
+    pre {
+      background: #0a0e17; color: #d7e0f0; border: 1px solid var(--border);
+      border-radius: 8px; padding: 14px; overflow-x: auto; font-size: 12.5px;
+      font-family: var(--mono); margin: 0; max-height: 340px;
+    }
+    @media (prefers-color-scheme: light) { pre { background: #0f1729; color: #d7e0f0; } }
+    .badge { font-family: var(--mono); font-size: 12px; padding: 2px 8px; border-radius: 999px; font-weight: 700; }
+    .b2xx { background: rgba(34,197,94,.15); color: var(--accent2); }
+    .b4xx { background: rgba(239,68,68,.15); color: var(--danger); }
+    .b5xx { background: rgba(245,158,11,.18); color: #f59e0b; }
+    .hint { font-size: 12.5px; color: var(--muted); margin: 10px 0 0; }
+    code { font-family: var(--mono); background: var(--panel2); padding: 1px 5px; border-radius: 5px; }
+    .full { grid-column: 1 / -1; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap" style="padding-bottom:0">
+      <h1><span class="lock">🔒</span> Go-Secure-Gateway</h1>
+      <p class="sub">端到端演示 · JWT 鉴权 / 限流 / 反向代理 / 负载均衡 / 熔断</p>
+      <p class="sub" style="margin-top:6px">
+        网关状态 <span id="hc" class="status-dot"></span> <span id="hctext" class="muted">检测中…</span>
+      </p>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <div class="grid">
+      <div class="card">
+        <h2>1 · 获取开发令牌</h2>
+        <div class="row">
+          <button id="getToken">获取 JWT</button>
+          <button class="ghost small" id="clearToken">清除</button>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <input id="token" type="text" placeholder="Bearer token 会显示在这里…" />
+        </div>
+        <p class="hint">调用 <code>/debug/token</code>（仅 <code>debug: true</code> 时开放，用于本地演示）。</p>
+      </div>
+
+      <div class="card">
+        <h2>2 · 请求选项</h2>
+        <div class="row">
+          <label class="check"><input type="checkbox" id="attach" checked /> 附带 Authorization 令牌</label>
+        </div>
+        <p class="hint">取消勾选后发送请求，应返回 <code>401</code>——验证鉴权生效。</p>
+        <div class="row" style="margin-top:10px">
+          <button class="ghost small" id="spam">连发 8 次 /interaction（演示限流 429）</button>
+        </div>
+      </div>
+
+      <div class="card full">
+        <h2>3 · 调用受保护路由</h2>
+        <div class="row">
+          <button class="route" data-path="/interaction/ping">GET /interaction/ping</button>
+          <button class="route" data-path="/storage/files/1">GET /storage/files/1（LB×2）</button>
+          <button class="route" data-path="/compute/run?n=42">GET /compute/run</button>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <input id="custom" type="text" value="/storage/files/1" />
+          <button class="ghost" id="sendCustom">发送</button>
+        </div>
+        <p class="hint">
+          反复点 <b>/storage</b>，注意响应里的 <code>service</code> 在 <code>storage-a</code> /
+          <code>storage-b</code> 间轮转 —— 这就是轮询负载均衡；<code>path</code> 已被 strip 掉前缀。
+        </p>
+      </div>
+
+      <div class="card full">
+        <h2>响应 <span id="badge"></span></h2>
+        <pre id="out">// 点击上面的按钮发起请求…</pre>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const out = $("out"), badge = $("badge");
+
+    function showBadge(status) {
+      const cls = status >= 500 ? "b5xx" : status >= 400 ? "b4xx" : "b2xx";
+      badge.className = "badge " + cls;
+      badge.textContent = status;
+    }
+
+    async function health() {
+      try {
+        const r = await fetch("/api/healthz");
+        const up = r.ok;
+        $("hc").className = "status-dot " + (up ? "up" : "down");
+        $("hctext").textContent = up ? "在线" : "异常";
+      } catch {
+        $("hc").className = "status-dot down";
+        $("hctext").textContent = "无法连接";
+      }
+    }
+
+    async function call(path) {
+      const headers = {};
+      if ($("attach").checked && $("token").value) {
+        headers["Authorization"] = "Bearer " + $("token").value;
+      }
+      const t0 = performance.now();
+      try {
+        const r = await fetch("/api" + path, { headers });
+        const ms = Math.round(performance.now() - t0);
+        showBadge(r.status);
+        const text = await r.text();
+        let body = text;
+        try { body = JSON.stringify(JSON.parse(text), null, 2); } catch {}
+        out.textContent =
+          `${r.status} ${r.statusText}  ·  ${ms}ms  ·  X-Served-By: ${r.headers.get("X-Served-By") || "-"}\n\n${body}`;
+      } catch (e) {
+        showBadge(0);
+        out.textContent = "请求失败：" + e;
+      }
+    }
+
+    $("getToken").onclick = async () => {
+      try {
+        const r = await fetch("/api/debug/token");
+        const j = await r.json();
+        $("token").value = j.token || "";
+        showBadge(r.status);
+        out.textContent = "已获取令牌 ✅\n\n" + JSON.stringify(j, null, 2);
+      } catch (e) { out.textContent = "获取令牌失败：" + e; }
+    };
+    $("clearToken").onclick = () => { $("token").value = ""; };
+    document.querySelectorAll(".route").forEach(b =>
+      b.onclick = () => call(b.dataset.path));
+    $("sendCustom").onclick = () => call($("custom").value || "/");
+    $("spam").onclick = async () => {
+      const results = [];
+      for (let i = 0; i < 8; i++) {
+        const headers = {};
+        if ($("attach").checked && $("token").value)
+          headers["Authorization"] = "Bearer " + $("token").value;
+        const r = await fetch("/api/interaction/ping", { headers });
+        results.push("#" + (i + 1) + " → " + r.status);
+      }
+      showBadge(429);
+      out.textContent = "限流演示（默认 rps=50/burst=100，压测时可调低）：\n\n" + results.join("\n");
+    };
+
+    health();
+    setInterval(health, 5000);
+  </script>
+</body>
+</html>
