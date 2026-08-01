@@ -1,7 +1,7 @@
-# Binaries
+# Binaries (anchored to repo root so they don't match cmd/gateway, cmd/mockbackend source dirs)
 bin/
-gateway
-mockbackend
+/gateway
+/mockbackend
 *.exe
 
 # Test / coverage output
