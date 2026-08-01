@@ -1,14 +1,16 @@
 import requests
+import random
 from framework.config import BASE_URL, HTTP_TIMEOUT
 
 
 class GatewayClient:
-    def __init__(self,token=None):
+    def __init__(self,token=None,source_ip=None):
         self.base_url = BASE_URL
         self.token = token
+        self.source_ip = source_ip or f"10.{random.randint(0,255)}.{random.randint(0,255)}.{random.randint(0,255)}"
 
     def _headers(self):
-        headers = {}
+        headers = {"X-Forwarded-For": self.source_ip}
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
         return headers

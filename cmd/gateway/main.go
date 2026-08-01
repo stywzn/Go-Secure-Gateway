@@ -79,7 +79,7 @@ func main() {
 	// 6. Mount dynamic routes from config.
 	logger.Info("loading microservice route table")
 	for _, route := range cfg.Routes {
-		proxyEngine, err := proxy.NewProxyEngine(route, logger)
+		proxyEngine, err := proxy.NewProxyEngine(route, time.Duration(cfg.Server.UpstreamTimeoutSeconds)*time.Second, logger)
 		if err != nil {
 			logger.Error("failed to init proxy engine", "route", route.PathPrefix, "err", err)
 			os.Exit(1)

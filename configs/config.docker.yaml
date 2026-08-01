@@ -3,12 +3,15 @@ server:
   read_timeout_seconds: 15
   write_timeout_seconds: 15
   idle_timeout_seconds: 60
+  # Low on purpose so the timeout test can trip 504 quickly: a backend slower
+  # than this returns 504 Gateway Timeout.
+  upstream_timeout_seconds: 2
 
 # jwt.secret is injected via the JWT_SECRET env var in docker-compose.
 
 rate_limit:
-  rps: 50
-  burst: 100
+  rps: 10
+  burst: 20
 
 # Enabled so the demo frontend can mint a token via /debug/token.
 debug: true

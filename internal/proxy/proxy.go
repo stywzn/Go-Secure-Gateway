@@ -1,6 +1,8 @@
 package proxy
 
 import (
+	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httputil"
@@ -17,15 +19,17 @@ import (
 // upstream backends (round-robin), guards them with a circuit breaker, and
 // records request metrics.
 type ProxyEngine struct {
-	route  config.RouteConfig
-	lb     *RoundRobinLB
-	proxy  *httputil.ReverseProxy
-	cb     *CircuitBreaker
-	logger *slog.Logger
+	route           config.RouteConfig
+	lb              *RoundRobinLB
+	proxy           *httputil.ReverseProxy
+	cb              *CircuitBreaker
+	logger          *slog.Logger
+	upstreamTimeout time.Duration
 }
 
-// NewProxyEngine builds a proxy engine for the given route.
-func NewProxyEngine(route config.RouteConfig, logger *slog.Logger) (*ProxyEngine, error) {
+// NewProxyEngine builds a proxy engine for the given route. upstreamTimeout
+// bounds how long the gateway waits for a backend response (0 disables it).
+func NewProxyEngine(route config.RouteConfig, upstreamTimeout time.Duration, logger *slog.Logger) (*ProxyEngine, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -36,10 +40,11 @@ func NewProxyEngine(route config.RouteConfig, logger *slog.Logger) (*ProxyEngine
 	}
 
 	engine := &ProxyEngine{
-		route:  route,
-		lb:     lb,
-		cb:     NewCircuitBreaker(5, 10*time.Second),
-		logger: logger,
+		route:           route,
+		lb:              lb,
+		cb:              NewCircuitBreaker(5, 10*time.Second),
+		logger:          logger,
+		upstreamTimeout: upstreamTimeout,
 	}
 
 	rp := &httputil.ReverseProxy{
@@ -52,14 +57,24 @@ func NewProxyEngine(route config.RouteConfig, logger *slog.Logger) (*ProxyEngine
 			ExpectContinueTimeout: 1 * time.Second,
 		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			// A slow backend that exceeds upstreamTimeout surfaces as a
+			// context deadline: return 504 Gateway Timeout. Everything else
+			// (connection refused, reset, ...) is a 502 Bad Gateway.
+			status := http.StatusBadGateway
+			msg := "Backend service unavailable"
+			if errors.Is(err, context.DeadlineExceeded) {
+				status = http.StatusGatewayTimeout
+				msg = "Upstream timed out"
+			}
 			engine.logger.Error("upstream request failed",
 				"route", engine.route.PathPrefix,
 				"path", r.URL.Path,
+				"status", status,
 				"err", err,
 			)
-			// The statusWriter records this 502 as a failure, tripping the
+			// The statusWriter records this 5xx as a failure, tripping the
 			// circuit breaker after enough consecutive backend errors.
-			http.Error(w, "Backend service unavailable", http.StatusBadGateway)
+			http.Error(w, msg, status)
 		},
 	}
 	engine.proxy = rp
@@ -115,6 +130,15 @@ func (p *ProxyEngine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		metrics.RequestCount.WithLabelValues(r.Method, p.route.PathPrefix, "503").Inc()
 		http.Error(w, "503 Service Unavailable (Circuit Open)", http.StatusServiceUnavailable)
 		return
+	}
+
+	// Bound how long we wait for the backend. When it is exceeded the
+	// transport aborts the round-trip with context.DeadlineExceeded, which the
+	// ErrorHandler turns into a 504.
+	if p.upstreamTimeout > 0 {
+		ctx, cancel := context.WithTimeout(r.Context(), p.upstreamTimeout)
+		defer cancel()
+		r = r.WithContext(ctx)
 	}
 
 	sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}

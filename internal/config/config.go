@@ -41,6 +41,9 @@ type ServerConfig struct {
 	ReadTimeoutSeconds  int `yaml:"read_timeout_seconds"`
 	WriteTimeoutSeconds int `yaml:"write_timeout_seconds"`
 	IdleTimeoutSeconds  int `yaml:"idle_timeout_seconds"`
+	// UpstreamTimeoutSeconds bounds how long the gateway waits for a backend
+	// response before returning 504. Zero means "use the default".
+	UpstreamTimeoutSeconds int `yaml:"upstream_timeout_seconds"`
 }
 
 type JWTConfig struct {
@@ -104,6 +107,9 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Server.IdleTimeoutSeconds == 0 {
 		c.Server.IdleTimeoutSeconds = 60
+	}
+	if c.Server.UpstreamTimeoutSeconds == 0 {
+		c.Server.UpstreamTimeoutSeconds = 30
 	}
 	if c.RateLimit.RPS == 0 {
 		c.RateLimit.RPS = 2

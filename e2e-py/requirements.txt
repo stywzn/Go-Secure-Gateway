@@ -1,3 +1,8 @@
 pytest
 requests
 pyjwt
+jsonschema
+pytest-html
+allure-pytest
+pytest-xdist
+pyyaml

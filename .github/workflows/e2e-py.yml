@@ -1,0 +1,54 @@
+# e2e-py 接口自动化的 CI 门禁:
+# 每次 push / 提 PR → 起被测栈 → 跑 pytest → 挂了就把这次运行标红(拦 PR)。
+name: e2e-py
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:        # 也允许在 Actions 页面手动点运行
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest   # GitHub 提供的一台干净 Ubuntu 机器
+    steps:
+      # 1) 把仓库代码拉到这台机器上
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 2) 装 Python(用 3.12,GitHub runner 稳定支持)
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # 3) 装 e2e-py 的测试依赖
+      - name: Install test deps
+        run: pip install -r e2e-py/requirements.txt
+
+      # 4) 起被测栈(网关 + mock 后端)。compose 里配了 healthcheck,
+      #    --wait 会等到所有服务 healthy 才继续。Go 依赖已 vendor,离线构建。
+      - name: Start gateway stack
+        run: docker compose up --build -d --wait
+
+      # 5) 双保险:再轮询一下网关就绪(起不来就打日志并失败)
+      - name: Wait for gateway
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8080/healthz; then echo " ready"; exit 0; fi
+            sleep 2
+          done
+          echo "gateway not ready"; docker compose logs; exit 1
+
+      # 6) 跑测试。pytest 挂了 → 这步退出码非0 → 整个 job 变红 → PR 被拦。
+      - name: Run pytest
+        working-directory: e2e-py
+        run: pytest -v --alluredir=allure-results
+
+      # 7) 不管成败,都把 Allure 结果传成产物(可在 Actions 页面下载查看)
+      - name: Upload allure-results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-results
+          path: e2e-py/allure-results
