@@ -22,7 +22,7 @@ func TestProxyEngine_StripPrefixAndForward(t *testing.T) {
 		PathPrefix:  "/storage",
 		TargetURL:   backend.URL,
 		StripPrefix: true,
-	}, nil)
+	}, 0, nil)
 	if err != nil {
 		t.Fatalf("NewProxyEngine: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestProxyEngine_NoStripKeepsPath(t *testing.T) {
 	engine, _ := NewProxyEngine(config.RouteConfig{
 		PathPrefix: "/interaction",
 		TargetURL:  backend.URL,
-	}, nil)
+	}, 0, nil)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/interaction/ping", nil)
@@ -78,7 +78,7 @@ func TestProxyEngine_CircuitBreakerOpensOn5xx(t *testing.T) {
 	engine, _ := NewProxyEngine(config.RouteConfig{
 		PathPrefix: "/x",
 		TargetURL:  backend.URL,
-	}, nil)
+	}, 0, nil)
 
 	// Default breaker threshold is 5 consecutive failures.
 	for i := 0; i < 5; i++ {

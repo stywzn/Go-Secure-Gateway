@@ -1,0 +1,12 @@
+- name: valid_token
+  kind: valid
+  expect: 200
+- name: expired_token
+  kind: expired
+  expect: 401
+- name: wrong_secret
+  kind: wrong_secret
+  expect: 401
+- name: alg_none
+  kind: none_alg
+  expect: 401

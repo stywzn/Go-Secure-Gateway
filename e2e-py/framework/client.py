@@ -19,5 +19,14 @@ class GatewayClient:
         url = self.base_url + path
         return requests.get(url,headers=self._headers(),timeout=HTTP_TIMEOUT)
     
+    def post(self,path,json=None):
+        url = self.base_url + path
+        return requests.post(url,headers=self._headers(),json=json,timeout=HTTP_TIMEOUT)
 
+    def put(self,path,json=None):
+        url = self.base_url + path
+        return requests.put(url,headers=self._headers(),json=json,timeout=HTTP_TIMEOUT)
 
+    def delete(self,path):
+        url = self.base_url + path
+        return requests.delete(url,headers=self._headers(),timeout=HTTP_TIMEOUT)

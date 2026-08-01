@@ -40,10 +40,16 @@ jobs:
           done
           echo "gateway not ready"; docker compose logs; exit 1
 
-      # 6) 跑测试。pytest 挂了 → 这步退出码非0 → 整个 job 变红 → PR 被拦。
-      - name: Run pytest
+      # 6) 跑测试(两阶段):大部队并行(除熔断) + 熔断单独串行。
+      #    破坏性的熔断用例会打开 /compute 的服务端熔断,不能和别的用例并行,
+      #    否则超时用例会撞上 503。任一阶段挂 → 退出码非0 → job 变红 → PR 被拦。
+      - name: Run pytest — parallel (no breaker)
         working-directory: e2e-py
-        run: pytest -v --alluredir=allure-results
+        run: pytest -m "not breaker" -n auto --alluredir=allure-results
+
+      - name: Run pytest — breaker (serial)
+        working-directory: e2e-py
+        run: pytest -m breaker --alluredir=allure-results
 
       # 7) 不管成败,都把 Allure 结果传成产物(可在 Actions 页面下载查看)
       - name: Upload allure-results
