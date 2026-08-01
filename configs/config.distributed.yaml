@@ -1,0 +1,33 @@
+# Config for the "distributed" compose profile: two gateway replicas share a
+# GLOBAL rate limit via Redis. Used to prove the limit holds across replicas
+# (unlike memory mode, where each replica has its own bucket → limit ×N).
+server:
+  port: ":8080"
+  upstream_timeout_seconds: 2
+
+# jwt.secret injected via JWT_SECRET env.
+
+rate_limit:
+  mode: redis
+  redis_addr: redis:6379
+  burst: 20            # GLOBAL limit: at most 20 requests per IP per window,
+  window_seconds: 10   # across BOTH replicas. Long window so a test flood lands
+                       # in one window → deterministic ~20 allowed globally.
+
+debug: true
+
+routes:
+  - path_prefix: "/interaction"
+    target_url: "http://backend-interaction:8080"
+    strip_prefix: false
+  - path_prefix: "/storage"
+    targets:
+      - "http://backend-storage:8080"
+      - "http://backend-storage-2:8080"
+    strip_prefix: true
+  - path_prefix: "/compute"
+    target_url: "http://backend-compute:8080"
+    strip_prefix: true
+  - path_prefix: "/data"
+    target_url: "http://backend-data:8080"
+    strip_prefix: true

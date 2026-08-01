@@ -9,6 +9,12 @@ import (
 	"golang.org/x/time/rate"
 )
 
+// Limiter decides whether a request from the given client IP may proceed.
+// Implemented by the in-memory IPRateLimiter and the Redis-backed RedisLimiter.
+type Limiter interface {
+	Allow(ip string) bool
+}
+
 // ipEntry pairs a limiter with the last time its IP was seen, so idle entries
 // can be evicted.
 type ipEntry struct {
@@ -87,12 +93,18 @@ func (i *IPRateLimiter) Stop() {
 	close(i.stop)
 }
 
-// RateLimitMiddleware rejects requests from an IP that has exhausted its bucket.
-func RateLimitMiddleware(limiter *IPRateLimiter) gin.HandlerFunc {
+// Allow reports whether a request from ip may proceed (implements Limiter).
+func (i *IPRateLimiter) Allow(ip string) bool {
+	return i.getLimiter(ip).Allow()
+}
+
+// RateLimitMiddleware rejects requests from an IP that has exhausted its quota.
+// It accepts any Limiter (memory or redis), so the mode is swappable via config.
+func RateLimitMiddleware(limiter Limiter) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ip := c.ClientIP()
 
-		if !limiter.getLimiter(ip).Allow() {
+		if !limiter.Allow(ip) {
 			c.JSON(http.StatusTooManyRequests, gin.H{
 				"error": "429 Too Many Requests",
 			})

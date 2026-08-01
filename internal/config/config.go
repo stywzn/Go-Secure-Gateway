@@ -53,6 +53,14 @@ type JWTConfig struct {
 type RateLimitConfig struct {
 	RPS   float64 `yaml:"rps"`
 	Burst int     `yaml:"burst"`
+	// Mode selects the limiter: "memory" (per-instance token bucket, default)
+	// or "redis" (GLOBAL fixed-window shared across gateway replicas via Redis).
+	Mode string `yaml:"mode"`
+	// RedisAddr is the Redis address used when Mode == "redis" (e.g. redis:6379).
+	RedisAddr string `yaml:"redis_addr"`
+	// WindowSeconds is the fixed-window size for Mode == "redis"; within each
+	// window at most Burst requests per IP are allowed across ALL replicas.
+	WindowSeconds int `yaml:"window_seconds"`
 }
 
 type Config struct {
@@ -88,6 +96,15 @@ func LoadConfig(path string) (*Config, error) {
 	if envSecret := os.Getenv("JWT_SECRET"); envSecret != "" {
 		cfg.JWT.Secret = envSecret
 	}
+	// Let the rate-limit mode / Redis address be injected from the environment
+	// (used by the docker-compose "distributed" profile to run replicas in
+	// redis mode without a separate config file).
+	if envMode := os.Getenv("RATE_LIMIT_MODE"); envMode != "" {
+		cfg.RateLimit.Mode = envMode
+	}
+	if envRedis := os.Getenv("REDIS_ADDR"); envRedis != "" {
+		cfg.RateLimit.RedisAddr = envRedis
+	}
 
 	if err := cfg.normalizeAndValidate(); err != nil {
 		return nil, err
@@ -116,6 +133,12 @@ func (c *Config) applyDefaults() {
 	}
 	if c.RateLimit.Burst == 0 {
 		c.RateLimit.Burst = 5
+	}
+	if c.RateLimit.Mode == "" {
+		c.RateLimit.Mode = "memory"
+	}
+	if c.RateLimit.WindowSeconds == 0 {
+		c.RateLimit.WindowSeconds = 1
 	}
 }
 

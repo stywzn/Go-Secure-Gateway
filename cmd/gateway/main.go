@@ -67,9 +67,26 @@ func main() {
 		})
 	}
 
-	// 4. Per-IP rate limiter.
-	limiter := middleware.NewIPRateLimiter(rate.Limit(cfg.RateLimit.RPS), cfg.RateLimit.Burst)
-	defer limiter.Stop()
+	// 4. Rate limiter. "memory" (default) = per-instance token bucket;
+	// "redis" = GLOBAL fixed-window shared across all gateway replicas.
+	var limiter middleware.Limiter
+	if cfg.RateLimit.Mode == "redis" {
+		limiter = middleware.NewRedisLimiter(
+			cfg.RateLimit.RedisAddr,
+			cfg.RateLimit.Burst,
+			time.Duration(cfg.RateLimit.WindowSeconds)*time.Second,
+			logger,
+		)
+		logger.Info("rate limiter: redis (global)",
+			"addr", cfg.RateLimit.RedisAddr,
+			"limit_per_window", cfg.RateLimit.Burst,
+			"window_s", cfg.RateLimit.WindowSeconds)
+	} else {
+		mem := middleware.NewIPRateLimiter(rate.Limit(cfg.RateLimit.RPS), cfg.RateLimit.Burst)
+		defer mem.Stop()
+		limiter = mem
+		logger.Info("rate limiter: memory (per-instance)", "rps", cfg.RateLimit.RPS, "burst", cfg.RateLimit.Burst)
+	}
 
 	// 5. Protected route group: rate limit + JWT auth.
 	protectedGroup := r.Group("/")
