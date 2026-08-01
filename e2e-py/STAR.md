@@ -71,15 +71,51 @@
 
 ---
 
-## 框架还能优化的地方(future work,面试可主动说)
+## 框架还能优化的地方(future work,面试主动说)
 
-1. **客户端 DRY**:`get/post/put/delete` 各自重复拼 URL/头/超时,可抽一个 `_request(method, path, **kwargs)` 核心方法,其余委托它。
-2. **会话级探活夹具**:session 级先探一次网关是否就绪,栈没起时**快速失败并给清晰指引**,而不是每条用例各自超时报一堆红。
-3. **更严的质量闸**:`pytest.ini` 加 `--strict-markers`(打错标记直接报错,避免之前 loadbalance/loadbalancing 那种坑)+ `filterwarnings` 消掉 JWT 密钥长度警告,报告更干净。
-4. **契约测试吃 OpenAPI**:目前用内联 JSON Schema,可改为直接从 `docs/openapi.yaml` 提取 schema 校验,真正"以契约为唯一真相源"。
-5. **k6 参数化**:压测脚本的 base_url 走 `__ENV`,便于压测不同环境;再加 ramp-up/soak 场景。
-6. **Allure 发布**:CI 里把 Allure 报告发布到 GitHub Pages,拿到一个在线报告链接。
-7. **全局限流(架构级)**:引入 Redis 做全局限流/熔断,并补对应的**分布式测试**(多副本下总量受全局限流约束)。
+> 每条都按 **缺点 → 思路 → 怎么改 → 效果** 讲,体现"我知道现状不足 + 有可落地的改进路径"。
+
+### 1. 客户端 DRY(消除重复)
+- **缺点**:`get/post/put/delete` 各自重复拼 URL、组头、设超时,4 个方法几乎一样;想加个统一日志/重试要改 4 遍。
+- **思路**:提取单一核心方法,其余委托它。
+- **怎么改**:写 `_request(method, path, **kwargs)` 负责拼 URL/注入头/超时/发请求;`get/post...` 只 `return self._request("GET", path, **kw)`。
+- **效果**:样板集中一处,加日志/重试/Allure 附件只改一个地方,代码量减半、更易维护。
+
+### 2. 会话级探活夹具(fail fast)
+- **缺点**:栈没起时每条用例各自去连、各自超时,报一屏红,看不出"其实是环境没起"。
+- **思路**:开跑前统一探活一次,不通就立刻带指引退出。
+- **怎么改**:conftest 加 `@pytest.fixture(scope="session", autouse=True)`,请求 `/healthz`,失败 `pytest.exit("先 docker compose up ...")`。
+- **效果**:环境问题 3 秒内明确报出并给操作指引,不再被一堆连接超时误导,新人体验好。
+
+### 3. 更严的质量闸(strict-markers + filterwarnings)
+- **缺点**:打错 marker 名(loadbalance vs loadbalancing)时 `-m` 静默选不中、不报错(踩过一次);JWT 密钥长度警告刷屏。
+- **思路**:让错误尽早显式失败,噪音过滤掉。
+- **怎么改**:`pytest.ini` 的 `addopts` 加 `--strict-markers`;加 `filterwarnings` 忽略该警告(或换 ≥32 字节密钥)。
+- **效果**:marker 拼错立即报错、不再静默漏跑;报告只剩有用信息。
+
+### 4. 契约测试吃 OpenAPI(单一真相源)
+- **缺点**:schema 内联在测试里,和 `docs/openapi.yaml` 是两份、可能不一致;契约变了测试不会自动跟。
+- **思路**:直接从 openapi.yaml 取 schema 校验,契约文件成为唯一真相源。
+- **怎么改**:用 `prance`/`openapi-spec-validator` 解析 openapi.yaml 提取响应 schema 喂给 jsonschema;或用 `schemathesis` 基于 OpenAPI 自动生成契约测试。
+- **效果**:契约一改测试自动跟,不用维护两份;还能自动生成用例。
+
+### 5. k6 参数化 + 更多场景
+- **缺点**:base_url 硬编码 `127.0.0.1`;只有一个固定瞬时峰值场景。
+- **思路**:环境可切、场景可扩。
+- **怎么改**:脚本读 `__ENV.BASE_URL`;options 加 `stages`(阶梯加压 ramp-up)、加长时间 soak、加更多 thresholds。
+- **效果**:一套脚本压不同环境;能看限流在逐步加压/长稳下的表现,不只是瞬时峰值。
+
+### 6. Allure 报告发布到 Pages(可分享链接)
+- **缺点**:Allure 报告只在本地/CI 产物里,别人看不到。
+- **思路**:CI 生成 HTML 报告并发布到 GitHub Pages。
+- **怎么改**:CI 里 `allure generate` + `peaceiris/actions-gh-pages` 发到 gh-pages 分支。
+- **效果**:每次跑完有一个**在线报告链接**,简历/PR 里直接给,专业度高。
+
+### 7. 全局限流(Redis)+ 分布式测试(架构级)
+- **缺点**:限流/熔断每实例内存态,多副本下非全局,有效阈值翻倍。
+- **思路**:把计数外置到 Redis 做全局限流。
+- **怎么改**:限流中间件改用 Redis(`INCR`+过期做固定窗口,或 Lua 脚本实现原子令牌桶);compose 加 redis。
+- **效果**:多副本下限流真正全局;并新增分布式测试点(多副本同时压→总放行量受全局阈值约束)+ Redis 故障降级测试。
 
 ---
 
