@@ -65,7 +65,7 @@ Go-Secure-Gateway/
 
 | 文件 | 作用 |
 |---|---|
-| [internal/proxy/proxy.go](../internal/proxy/proxy.go) | 每个路由一个 `ProxyEngine`:用负载均衡选后端、剥离前缀、注入 `X-User-Id`(并删除客户端伪造值)、设置转发头、记录指标、按 5xx 驱动熔断。 |
+| [internal/proxy/proxy.go](../internal/proxy/proxy.go) | 每个路由一个 `ProxyEngine`:用负载均衡选后端、剥离前缀、注入 `X-User-Id`(并删除客户端伪造值)、设置转发头、**上游超时**(后端超过 `upstream_timeout_seconds` 未响应 → 504)、记录指标、按 5xx 驱动熔断。 |
 | [internal/proxy/loadbalancer.go](../internal/proxy/loadbalancer.go) | 轮询负载均衡,读路径无锁(atomic + 写时复制)。 |
 | [internal/proxy/breaker.go](../internal/proxy/breaker.go) | 熔断器状态机:关闭→打开→半开(单探测)。 |
 | [internal/proxy/response_writer.go](../internal/proxy/response_writer.go) | 包装 ResponseWriter 抓状态码,并用 `Unwrap` 保住流式/劫持能力。 |
@@ -129,6 +129,24 @@ Go-Secure-Gateway/
 与 `internal/**/*_test.go` 的白盒单元测试是不同层次。
 
 ---
+
+## 功能测试点 → 在哪个文件测(白盒 + 黑盒)
+
+| 模块 / 测试点 | 网关实现文件 | 白盒单测 | 黑盒接口测试(功能测试点所在) |
+|---|---|---|---|
+| 鉴权 | `internal/middleware/jwt.go` | `jwt_test.go` | `e2e-py/testcases/test_auth.py` · `tests/testcases/test_auth.py` |
+| 限流 | `internal/middleware/ratelimit.go` | `ratelimit_test.go` | `e2e-py/testcases/test_ratelimit.py` · `tests/testcases/test_ratelimit.py` |
+| 路由 / 反向代理 | `internal/proxy/proxy.go` | `proxy_test.go` | `e2e-py/testcases/test_routing.py` · `tests/testcases/test_routing.py` |
+| 负载均衡 | `internal/proxy/loadbalancer.go` | `loadbalancer_test.go` | `e2e-py/testcases/test_loadbalance.py` · `tests/testcases/test_loadbalance.py` |
+| 熔断 | `internal/proxy/breaker.go` | `breaker_test.go`、`proxy_test.go` | `e2e-py/testcases/test_circuit_breaker.py` · `tests/testcases/test_circuitbreaker.py` |
+| 上游超时 | `internal/proxy/proxy.go` | — | `e2e-py/testcases/test_timeout.py` · `tests/testcases/test_timeout.py` |
+| 监控 / 探针 | `internal/metrics/metrics.go`、`main.go` | — | `e2e-py/testcases/test_ops.py` · `tests/testcases/test_ops_metrics.py` |
+| 契约 | `docs/openapi.yaml` | — | `e2e-py/testcases/test_contract.py` · `tests/contract/test_openapi_contract.py` |
+| 有状态 CRUD | `cmd/mockbackend/main.go`(经 `/data` 路由代理) | — | `e2e-py/testcases/test_crud.py` |
+| 配置加载 | `internal/config/config.go` | `config_test.go` | —(启动即生效,单测覆盖) |
+
+> **两套黑盒框架**:`e2e-py/` 是从 0 手搭的主框架;`tests/` 是更完整的进阶版(多了 `assertions`/`prometheus` 指标断言、locust+k6 双压测)。详细测试点清单见 [docs/test-points.md](test-points.md)。
+> **全局限流 / 分布式测试** 在 `feature/redis-global-ratelimit` 分支(master 尚未合入)——见该分支的 `docs/redis-global-ratelimit.md`。
 
 ## 两层测试的关系
 
