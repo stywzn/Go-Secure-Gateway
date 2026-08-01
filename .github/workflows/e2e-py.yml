@@ -51,6 +51,14 @@ jobs:
         working-directory: e2e-py
         run: pytest -m breaker --alluredir=allure-results
 
+      # 6b) 性能门禁:k6 限流压测。脚本里的 thresholds 不达标 → k6 退出码非0 → job 变红。
+      - name: Install k6
+        uses: grafana/setup-k6-action@v1
+
+      - name: k6 rate-limit load test (perf gate)
+        working-directory: e2e-py
+        run: k6 run perf/ratelimit.js
+
       # 7) 不管成败,都把 Allure 结果传成产物(可在 Actions 页面下载查看)
       - name: Upload allure-results
         if: always()
