@@ -56,7 +56,8 @@ Go-Secure-Gateway/
 | 文件 | 作用 |
 |---|---|
 | [internal/middleware/jwt.go](../internal/middleware/jwt.go) | JWT 鉴权:校验 Bearer 头、强制 HS256、强制 `exp`;解析出 `user_id` 存入请求上下文,供代理透传下游。 |
-| [internal/middleware/ratelimit.go](../internal/middleware/ratelimit.go) | 按 IP 令牌桶限流;后台 goroutine 定期清理空闲 IP(防内存泄漏)。 |
+| [internal/middleware/ratelimit.go](../internal/middleware/ratelimit.go) | 定义 `Limiter` 接口 + 按 IP 令牌桶的**内存限流器**(默认);后台 goroutine 定期清理空闲 IP(防内存泄漏)。 |
+| [internal/middleware/ratelimit_redis.go](../internal/middleware/ratelimit_redis.go) | **(本分支新增)** `RedisLimiter`:用 Redis + Lua 固定窗口原子脚本做**全局限流**,多副本共享计数。`mode: redis` 时启用。 |
 | `*_test.go` | 对应单元测试(§1、§2)。 |
 
 → 关联测试点:**§1 鉴权、§2 限流、§8 安全**。
@@ -65,7 +66,7 @@ Go-Secure-Gateway/
 
 | 文件 | 作用 |
 |---|---|
-| [internal/proxy/proxy.go](../internal/proxy/proxy.go) | 每个路由一个 `ProxyEngine`:用负载均衡选后端、剥离前缀、注入 `X-User-Id`(并删除客户端伪造值)、设置转发头、记录指标、按 5xx 驱动熔断。 |
+| [internal/proxy/proxy.go](../internal/proxy/proxy.go) | 每个路由一个 `ProxyEngine`:用负载均衡选后端、剥离前缀、注入 `X-User-Id`(并删除客户端伪造值)、设置转发头、**上游超时**(后端超过 `upstream_timeout_seconds` 未响应 → 504)、记录指标、按 5xx 驱动熔断。 |
 | [internal/proxy/loadbalancer.go](../internal/proxy/loadbalancer.go) | 轮询负载均衡,读路径无锁(atomic + 写时复制)。 |
 | [internal/proxy/breaker.go](../internal/proxy/breaker.go) | 熔断器状态机:关闭→打开→半开(单探测)。 |
 | [internal/proxy/response_writer.go](../internal/proxy/response_writer.go) | 包装 ResponseWriter 抓状态码,并用 `Unwrap` 保住流式/劫持能力。 |
@@ -87,6 +88,7 @@ Go-Secure-Gateway/
 |---|---|
 | [configs/config.yaml](../configs/config.yaml) | 本地运行默认配置(`debug:true`,路由指向 localhost)。 |
 | [configs/config.docker.yaml](../configs/config.docker.yaml) | docker-compose 用:路由指向容器服务名。**四条路由各司其职**(见下)。 |
+| [configs/config.distributed.yaml](../configs/config.distributed.yaml) | **(本分支)** `distributed` profile 用:`mode: redis` 全局限流、10s 窗口、全局阈值 20。 |
 | [configs/nginx.conf](../configs/nginx.conf) | 可选的边缘 nginx(负载均衡多个网关副本)示例。 |
 
 **config.docker.yaml 的四条路由(测试时按角色选用)**:
@@ -130,6 +132,24 @@ Go-Secure-Gateway/
 
 ---
 
+## 功能测试点 → 在哪个文件测(白盒 + 黑盒)
+
+| 模块 / 测试点 | 网关实现文件 | 白盒单测 | 黑盒接口测试(功能测试点所在) |
+|---|---|---|---|
+| 鉴权 | `internal/middleware/jwt.go` | `jwt_test.go` | `e2e-py/testcases/test_auth.py` · `tests/testcases/test_auth.py` |
+| 限流(每实例) | `internal/middleware/ratelimit.go` | `ratelimit_test.go` | `e2e-py/testcases/test_ratelimit.py` · `tests/testcases/test_ratelimit.py` |
+| **限流(全局/分布式)** | `internal/middleware/ratelimit_redis.go` | — | `tests/testcases/test_distributed.py`(本分支) |
+| 路由 / 反向代理 | `internal/proxy/proxy.go` | `proxy_test.go` | `e2e-py/testcases/test_routing.py` · `tests/testcases/test_routing.py` |
+| 负载均衡 | `internal/proxy/loadbalancer.go` | `loadbalancer_test.go` | `e2e-py/testcases/test_loadbalance.py` · `tests/testcases/test_loadbalance.py` |
+| 熔断 | `internal/proxy/breaker.go` | `breaker_test.go`、`proxy_test.go` | `e2e-py/testcases/test_circuit_breaker.py` · `tests/testcases/test_circuitbreaker.py` |
+| 上游超时 | `internal/proxy/proxy.go` | — | `e2e-py/testcases/test_timeout.py` · `tests/testcases/test_timeout.py` |
+| 监控 / 探针 | `internal/metrics/metrics.go`、`main.go` | — | `e2e-py/testcases/test_ops.py` · `tests/testcases/test_ops_metrics.py` |
+| 契约 | `docs/openapi.yaml` | — | `e2e-py/testcases/test_contract.py` · `tests/contract/test_openapi_contract.py` |
+| 有状态 CRUD | `cmd/mockbackend/main.go`(经 `/data` 路由代理) | — | `e2e-py/testcases/test_crud.py` |
+| 配置加载 | `internal/config/config.go` | `config_test.go` | —(启动即生效,单测覆盖) |
+
+> **两套黑盒框架**:`e2e-py/` 是从 0 手搭的主框架;`tests/` 是更完整的进阶版(多了 `assertions`/`prometheus` 指标断言、locust+k6 双压测、本分支的分布式测试)。详细测试点清单见 [docs/test-points.md](test-points.md)。
+
 ## 两层测试的关系
 
 | | 白盒单元测试 | 黑盒接口自动化(e2e) |
@@ -167,4 +187,5 @@ Go-Secure-Gateway/
 
 - **熔断器**(按路由,服务端共享):
   `closed` --连续 5 次 5xx--> `open` --冷却 10s--> `half-open` --探测成功--> `closed`;`half-open` --探测失败--> `open`。
-- **限流令牌桶**(按 IP,每实例内存):令牌以 `rps` 速率补充、`burst` 为上限;空闲 IP 由后台 TTL 清理。**每实例独立 → 多副本下非全局**(要全局需 Redis)。
+- **限流令牌桶**(按 IP,每实例内存,默认):令牌以 `rps` 速率补充、`burst` 为上限;空闲 IP 由后台 TTL 清理。**每实例独立 → 多副本下非全局**。
+- **(本分支)Redis 全局限流**(`mode: redis`):计数放 Redis,Lua 固定窗口原子判定,**多副本共享同一配额**,解决上面"非全局"的问题。见 [docs/redis-global-ratelimit.md](redis-global-ratelimit.md)。
