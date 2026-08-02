@@ -11,7 +11,7 @@
 - **分层框架**:配置 / HTTP 客户端 / JWT 工具 / 断言解耦,用例只写业务意图。
 - **数据驱动**:鉴权负向用例外置到 `data/auth_cases.yaml`,加一行 = 加一个攻击面,不动代码。
 - **故障注入(最见深度)**:用可控测试桩 `?status=` / `?delay=` 稳定复现**熔断状态机**(closed→open→half-open→closed)与**上游超时(504)**,这些异常路径几乎无法用真实后端稳定复现,靠桩做到 100% 确定、零 flaky。
-- **性能压测**:k6 以远超阈值的并发压限流,断言 429 触发 + p95 延迟 + 无 5xx,thresholds 不达标即失败,**接入 CI 当性能门禁**。
+- **性能压测**:k6 以远超阈值的并发压限流,断言 429 触发 + p95 延迟 + 无 5xx,thresholds 不达标即失败,**接入 CI 当性能门禁**。性能测试的**取舍/全套体系/为什么不做负载与 soak/面试话术**见 [`PERFORMANCE-QA.md`](PERFORMANCE-QA.md)。
 - **契约测试**:用 JSON Schema 校验真实响应结构,面向契约而非面向实现。
 - **并行 + 隔离**:除熔断外全部 `pytest-xdist` 并行(约 3× 提速);破坏性的熔断用例单独串行,避免共享服务端状态串扰。
 - **CI 门禁**:GitHub Actions 每次 push/PR 自动起栈 → 两阶段跑 pytest → k6 压测 → 传 Allure 报告,任一环节失败即拦 PR。
@@ -81,6 +81,20 @@ e2e-py/
 2. `TrustedProxies` 未显式收窄 → 客户端可伪造 `X-Forwarded-For` 影响限流键(测试正是利用这点做隔离)。
 3. **负载均衡无后端健康检查** → 坏节点仍被轮询。
 4. `/metrics` 公开无鉴权;JWT 为 HS256 对称密钥,无 issuer/audience 校验与轮换。
+
+---
+
+## 📑 面试准备文档(本目录)
+
+| 文档 | 内容 |
+|---|---|
+| [`PERFORMANCE-QA.md`](PERFORMANCE-QA.md) | **性能测试**:做了什么 / 全套体系 / 为什么不做负载与 soak / 何时怎么做 / 30 秒话术 |
+| [`STAR.md`](STAR.md) | 用 STAR 讲这个项目 |
+| [`INTERVIEW-QA.md`](INTERVIEW-QA.md) | 项目相关面试问答 |
+| [`TESTING-GENERAL-QA.md`](TESTING-GENERAL-QA.md) | 通用测试面试题 |
+| [`PYTHON-QA.md`](PYTHON-QA.md) | Python 面试题 |
+| [`INTERVIEW-COMMUNICATION.md`](INTERVIEW-COMMUNICATION.md) | 沟通表达 |
+| [`MOCK-INTERVIEW-PROMPT.md`](MOCK-INTERVIEW-PROMPT.md) | 模拟面试 |
 
 ---
 
