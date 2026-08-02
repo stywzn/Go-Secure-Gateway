@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	_ "net/http/pprof" // registers /debug/pprof/* on http.DefaultServeMux (served on :6060 in debug mode)
 	"os"
 	"os/signal"
 	"sync/atomic"
@@ -57,6 +58,16 @@ func main() {
 	// a token-minting backdoor and must never be reachable in production.
 	if cfg.Debug {
 		logger.Warn("debug mode enabled: /debug/token is exposed — do NOT use in production")
+
+		// pprof profiling server on a separate port (debug/benchmark only).
+		// Grab a CPU profile while load-testing:  go tool pprof http://localhost:6060/debug/pprof/profile?seconds=30
+		go func() {
+			logger.Warn("pprof enabled on :6060 (debug only) — /debug/pprof/*")
+			if err := http.ListenAndServe(":6060", nil); err != nil {
+				logger.Error("pprof server stopped", "err", err)
+			}
+		}()
+
 		r.GET("/debug/token", func(c *gin.Context) {
 			token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 				"user_id": 9527,

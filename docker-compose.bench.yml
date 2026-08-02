@@ -9,6 +9,8 @@ services:
     environment:
       CONFIG_PATH: /app/configs/config.bench.yaml
       JWT_SECRET: compose-dev-secret
+    ports:
+      - "6060:6060" # pprof (debug only) — go tool pprof http://localhost:6060/debug/pprof/profile
     volumes:
       - ./configs/config.bench.yaml:/app/configs/config.bench.yaml:ro
 
