@@ -1,0 +1,23 @@
+# Benchmark override: run the gateway with the "unlimited rate limit" config
+# so k6 measures raw forwarding throughput (QPS / P99), not the rate limiter.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.bench.yml up --build -d
+#
+# Then run k6 (see e2e/perf/bench.js).
+services:
+  gateway:
+    environment:
+      CONFIG_PATH: /app/configs/config.bench.yaml
+      JWT_SECRET: compose-dev-secret
+    volumes:
+      - ./configs/config.bench.yaml:/app/configs/config.bench.yaml:ro
+
+  # One-off k6 load generator. Runs on the compose network, hits the gateway
+  # service directly. Invoke with `docker compose ... run --rm k6 run /scripts/bench.js`.
+  k6:
+    image: grafana/k6
+    profiles: ["bench"]
+    volumes:
+      - ./e2e/perf:/scripts:ro
+    environment:
+      BASE_URL: http://gateway:8080

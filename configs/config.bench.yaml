@@ -1,0 +1,36 @@
+server:
+  port: ":8080"
+  read_timeout_seconds: 15
+  write_timeout_seconds: 15
+  idle_timeout_seconds: 60
+  upstream_timeout_seconds: 2
+
+# jwt.secret is injected via the JWT_SECRET env var in docker-compose.
+
+# Benchmark config: rate limit set effectively unlimited so we measure the
+# gateway's RAW forwarding throughput (QPS / P99), not the rate limiter.
+# Rate-limit ACCURACY is a separate test with the low limits in config.docker.yaml.
+rate_limit:
+  rps: 1000000
+  burst: 1000000
+
+debug: true
+
+routes:
+  - path_prefix: "/interaction"
+    target_url: "http://backend-interaction:8080"
+    strip_prefix: false
+
+  - path_prefix: "/storage"
+    targets:
+      - "http://backend-storage:8080"
+      - "http://backend-storage-2:8080"
+    strip_prefix: true
+
+  - path_prefix: "/compute"
+    target_url: "http://backend-compute:8080"
+    strip_prefix: true
+
+  - path_prefix: "/data"
+    target_url: "http://backend-data:8080"
+    strip_prefix: true
