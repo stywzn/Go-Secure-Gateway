@@ -89,6 +89,7 @@ e2e-py/
 | 文档 | 内容 |
 |---|---|
 | [`PERFORMANCE-QA.md`](PERFORMANCE-QA.md) | **性能测试**:做了什么 / 全套体系 / 为什么不做负载与 soak / 何时怎么做 / 30 秒话术 |
+| [`DB-ASSERTION-QA.md`](DB-ASSERTION-QA.md) | **数据库断言**:为什么响应对≠数据对 / pytest 实现 / 数据清理 / 无状态网关为何没有 |
 | [`STAR.md`](STAR.md) | 用 STAR 讲这个项目 |
 | [`INTERVIEW-QA.md`](INTERVIEW-QA.md) | 项目相关面试问答 |
 | [`TESTING-GENERAL-QA.md`](TESTING-GENERAL-QA.md) | 通用测试面试题 |
