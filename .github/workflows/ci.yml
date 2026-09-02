@@ -24,7 +24,10 @@ jobs:
 
       - name: Verify formatting
         run: |
-          unformatted=$(gofmt -l .)
+          # 只查本模块自己的包目录。原来写的是 `gofmt -l .`，会连 vendor/ 里的
+          # 第三方代码一起扫（403 个文件不合规），导致这一步必然失败。
+          # `go list ./...` 在 vendor 模式下只返回本模块的包，天然排除 vendor。
+          unformatted=$(gofmt -l $(go list -f '{{.Dir}}' ./...))
           if [ -n "$unformatted" ]; then
             echo "These files are not gofmt-clean:"
             echo "$unformatted"
@@ -53,9 +56,13 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        # action 必须 v7+ 才能带 golangci-lint v2。原来 v6 + `version: latest`
+        # 拉到的是用 go1.24 构建的 v1.x，而 go.mod 目标是 1.25.0，直接报
+        # "the Go language version (go1.24) ... is lower than the targeted Go version (1.25.0)"。
+        # 版本写死而不用 latest：latest 会随上游漂移，正是这次翻车的原因。
+        uses: golangci/golangci-lint-action@v9
         with:
-          version: latest
+          version: v2.13.2
           args: --timeout=5m
 
   docker:
