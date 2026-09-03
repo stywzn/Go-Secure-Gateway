@@ -68,13 +68,14 @@ e2e-py/
 ├─ testcases/          # 按被测模块组织的用例
 ├─ perf/
 │  └─ ratelimit.js     # k6 限流压测
-├─ conftest.py         # 全局 fixtures:client / 带鉴权 client / 存储复位
+├─ conftest.py         # 全局 fixtures:会话级环境探活 / client / 带鉴权 client / 存储复位
 └─ pytest.ini          # 标记 / 路径配置
 ```
 
-> **待补**:会话级环境探活 fixture(栈没起时一句话报错并 fail fast,
-> 而不是 21 条 `ConnectionError` 堆栈)、领域断言层(把重复校验收敛成语义化断言)、
-> `client.py` 的 `request()` 收口。
+> **待补**:领域断言层(把重复校验收敛成语义化断言)、`client.py` 的 `request()` 收口。
+>
+> ~~会话级环境探活 fixture~~ ✅ 已实现 —— 栈没起时一句话报错并 fail fast,
+> 输出从 14095 行降到 16 行,退出码 1。见 [`面试笔记.md`](面试笔记.md) 第 2 条。
 
 ## 为什么熔断用例要单独串行
 
@@ -178,7 +179,8 @@ assert after > before
 |---|---|
 | [`PERFORMANCE-QA.md`](PERFORMANCE-QA.md) | **性能测试**:做了什么 / 全套体系 / 为什么不做负载与 soak / 何时怎么做 / 30 秒话术 |
 | [`DB-ASSERTION-QA.md`](DB-ASSERTION-QA.md) | **数据库断言**:为什么响应对≠数据对 / pytest 实现 / 数据清理 / 无状态网关为何没有 |
-| [`STAR.md`](STAR.md) | 用 STAR 讲这个项目 |
+| [`面试笔记.md`](面试笔记.md) | **技术点编号笔记**:每条来自真实改动,侧重原理 |
+| [`STAR.md`](STAR.md) | 用 STAR 讲这个项目(含「核心谈资」7 条) |
 | [`INTERVIEW-QA.md`](INTERVIEW-QA.md) | 项目相关面试问答 |
 | [`TESTING-GENERAL-QA.md`](TESTING-GENERAL-QA.md) | 通用测试面试题 |
 | [`PYTHON-QA.md`](PYTHON-QA.md) | Python 面试题 |
