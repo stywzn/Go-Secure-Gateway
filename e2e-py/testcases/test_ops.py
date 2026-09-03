@@ -1,4 +1,5 @@
 import pytest
+from framework.prometheus import counter_total
 def test_healthz_ok(client):
     resp = client.get("/healthz")
     assert resp.status_code == 200
@@ -19,10 +20,15 @@ def test_readyz_ok(client):
 
 
 @pytest.mark.ops
-def test_metrics_exposed(client):
-    resp = client.get("/metrics")
+def test_request_counter_increments(auth_client):
+    resp = auth_client.get("/metrics")
+    before = counter_total(resp.text, "gateway_http_requests_total")
+    auth_client.get("/interaction/ping")
+    resp = auth_client.get("/metrics")
+    after = counter_total(resp.text, "gateway_http_requests_total")
     assert resp.status_code == 200
-    assert "gateway_http_requests_total" in resp.text
+    assert after > before
+
 
 @pytest.mark.ops
 def test_debug_token_issues_token(client):
