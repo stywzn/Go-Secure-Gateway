@@ -14,19 +14,24 @@ class GatewayClient:
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
         return headers
-   
-    def get(self,path):
-        url = self.base_url + path
-        return requests.get(url,headers=self._headers(),timeout=HTTP_TIMEOUT)
-    
-    def post(self,path,json=None):
-        url = self.base_url + path
-        return requests.post(url,headers=self._headers(),json=json,timeout=HTTP_TIMEOUT)
 
-    def put(self,path,json=None):
+    def request(self,method,path,**kwargs):
         url = self.base_url + path
-        return requests.put(url,headers=self._headers(),json=json,timeout=HTTP_TIMEOUT)
+        kwargs.setdefault("timeout",HTTP_TIMEOUT)
 
-    def delete(self,path):
-        url = self.base_url + path
-        return requests.delete(url,headers=self._headers(),timeout=HTTP_TIMEOUT)
+        caller_headers = kwargs.pop("headers",{})
+        kwargs["headers"] = {**self._headers(),**caller_headers}
+        return requests.request(method,url,**kwargs)
+
+    def get(self,path,**kwargs):
+        return self.request("GET",path,**kwargs)
+
+    def post(self,path,**kwargs):
+        return self.request("POST",path,**kwargs)
+
+    def put(self,path,**kwargs):
+        return self.request("PUT",path,**kwargs)
+
+    def delete(self,path,**kwargs):
+        return self.request("DELETE",path,**kwargs)
+

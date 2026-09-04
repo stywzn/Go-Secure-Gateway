@@ -72,7 +72,12 @@ e2e-py/
 └─ pytest.ini          # 标记 / 路径配置
 ```
 
-> **待补**:领域断言层(把重复校验收敛成语义化断言)、`client.py` 的 `request()` 收口。
+> **待补**:领域断言层(把重复校验收敛成语义化断言)。
+>
+> ~~`client.py` 的 `request()` 收口~~ ✅ 已完成 —— 四个重复方法收敛为一个
+> `request(method, path, **kwargs)`;header 改为合并且调用方优先,
+> 负向鉴权用例可直接覆盖 `Authorization` 而无需新建 client。
+> 见 [`面试笔记.md`](面试笔记.md) 第 3 条。
 >
 > ~~会话级环境探活 fixture~~ ✅ 已实现 —— 栈没起时一句话报错并 fail fast,
 > 输出从 14095 行降到 16 行,退出码 1。见 [`面试笔记.md`](面试笔记.md) 第 2 条。
@@ -170,6 +175,17 @@ assert after > before
 2. `TrustedProxies` 未显式收窄 → 客户端可伪造 `X-Forwarded-For` 影响限流键(测试正是利用这点做隔离)。
 3. **负载均衡无后端健康检查** → 坏节点仍被轮询。
 4. `/metrics` 公开无鉴权;JWT 为 HS256 对称密钥,无 issuer/audience 校验与轮换。
+5. **JWT 密钥长度不足**:`compose-dev-secret` 为 18 字节,低于 RFC 7518 §3.2 对 HS256 的
+   建议下限(32 字节,即哈希输出长度)。密钥越短,离线暴力破解成本越低。
+   这条不是人工审出来的 —— 是跑测试时 PyJWT 抛的 `InsecureKeyLengthWarning` 提示的,
+   追进去核对 RFC 后确认成立。
+   *当前仅影响 compose 开发环境(生产密钥走 GitHub Secrets 注入),但同一份配置常被直接
+   照搬到测试/预发环境,值得收紧。*
+
+> **为什么不直接把密钥改长**:该值同时被 `docker-compose.yml`、`e2e-py/framework/config.py`、
+> `tests/framework/config.py`、`e2e/internal/config/config.go` 四处引用,改一处就得同步四处,
+> 收益(消掉 15 行警告)配不上破坏面。**这类警告应当记录为发现,而不是用 `filterwarnings` 压掉** ——
+> 压制会把真实的安全信号一起藏起来。
 
 ---
 
