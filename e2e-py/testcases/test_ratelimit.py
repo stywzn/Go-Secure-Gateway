@@ -3,6 +3,7 @@ import pytest
 from framework.client import GatewayClient
 from framework.jwt_utils import valid_token
 
+
 @pytest.mark.ratelimit
 def test_rate_limit_returns_429():
     client = GatewayClient(token=valid_token())

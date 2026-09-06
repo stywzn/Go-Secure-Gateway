@@ -1,5 +1,7 @@
 import pytest
+
 from framework.assertions import assert_status
+
 
 @pytest.mark.routing
 def test_prefix_not_stripped(auth_client):

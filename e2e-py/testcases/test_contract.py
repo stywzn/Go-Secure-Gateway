@@ -1,7 +1,7 @@
-import pytest
 import jsonschema
-from framework.assertions import assert_status
+import pytest
 
+from framework.assertions import assert_status
 
 TOKEN_SCHEMA = {
     "type":"object",

@@ -26,6 +26,13 @@ jobs:
       - name: Install test deps
         run: pip install -r e2e-py/requirements.txt
 
+      # 质量卡口：lint 只需几秒，而下面起整个 docker 栈要一分多钟。
+      # lint 不过就直接失败，不浪费构建时间。
+      # 规则集锁在 e2e-py/ruff.toml 里，升级 ruff 不会凭空冒出新错误。
+      # 只扫 e2e-py：根目录的 tests/ 与 e2e/ 是只读参考实现，不在本框架管辖范围。
+      - name: Lint (ruff)
+        run: python -m ruff check e2e-py
+
       # 4) 起被测栈(网关 + mock 后端)。compose 里配了 healthcheck,
       #    --wait 会等到所有服务 healthy 才继续。Go 依赖已 vendor,离线构建。
       - name: Start gateway stack

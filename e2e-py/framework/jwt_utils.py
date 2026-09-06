@@ -1,7 +1,11 @@
 
-import jwt
 import time
+
+import jwt
+
 from framework.config import JWT_SECRET
+
+
 def valid_token(user_id=9527):
     payload = {
         "user_id": user_id,

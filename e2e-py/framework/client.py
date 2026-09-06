@@ -1,5 +1,7 @@
-import requests
 import random
+
+import requests
+
 from framework.config import BASE_URL, HTTP_TIMEOUT
 
 

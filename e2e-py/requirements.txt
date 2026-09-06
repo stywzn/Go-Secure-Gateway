@@ -6,3 +6,6 @@ pytest-html
 allure-pytest
 pytest-xdist
 pyyaml
+
+# 工程化工具
+ruff==0.16.1            # linter：查未用导入、import 排序、可疑写法

@@ -1,5 +1,6 @@
 import pytest
-from framework.assertions import served_by, assert_status,assert_round_robin
+
+from framework.assertions import assert_round_robin, assert_status, served_by
 from framework.client import GatewayClient
 from framework.jwt_utils import valid_token
 

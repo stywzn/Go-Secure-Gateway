@@ -2,6 +2,8 @@ import pytest
 
 from framework.assertions import assert_status
 from framework.prometheus import counter_total
+
+
 def test_healthz_ok(client):
     resp = client.get("/healthz")
     assert_status(resp, 200)

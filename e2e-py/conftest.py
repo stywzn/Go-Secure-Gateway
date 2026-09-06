@@ -1,8 +1,10 @@
 import pytest
 import requests
-from framework.config import BASE_URL
+
 from framework.client import GatewayClient
+from framework.config import BASE_URL
 from framework.jwt_utils import valid_token
+
 
 @pytest.fixture(scope="session", autouse=True)
 def require_stack_up():

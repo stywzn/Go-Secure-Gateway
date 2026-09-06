@@ -1,5 +1,7 @@
 import pytest
+
 from framework.assertions import assert_status
+
 
 @pytest.mark.crud
 def test_item_lifecycle(reset_data):

@@ -1,7 +1,11 @@
-import pytest,time
-from framework.client import GatewayClient
+import time
+
+import pytest
+
 from framework.assertions import assert_status
+from framework.client import GatewayClient
 from framework.jwt_utils import valid_token
+
 
 @pytest.mark.breaker
 def test_circuit_opens_after_failures():
