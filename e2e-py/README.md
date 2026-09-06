@@ -8,7 +8,7 @@
 
 ## 亮点
 
-- **分层框架**:配置 / HTTP 客户端 / JWT 工具 / 断言解耦,用例只写业务意图。
+- **分层框架**:配置 / HTTP 客户端 / JWT 工具 / Prometheus 解析 / 领域断言层解耦,用例只写业务意图。断言失败时带出请求 URL 与响应体,不必回头猜。
 - **数据驱动**:鉴权负向用例外置到 `data/auth_cases.yaml`,加一行 = 加一个攻击面,不动代码。
 - **故障注入(最见深度)**:用可控测试桩 `?status=` / `?delay=` 稳定复现**熔断状态机**(closed→open→half-open→closed)与**上游超时(504)**,这些异常路径几乎无法用真实后端稳定复现,靠桩做到 100% 确定、零 flaky。
 - **性能压测**:k6 以远超阈值的并发压限流,断言 429 触发 + p95 延迟 + 无 5xx,thresholds 不达标即失败,**接入 CI 当性能门禁**。性能测试的**取舍/全套体系/为什么不做负载与 soak/面试话术**见 [`PERFORMANCE-QA.md`](PERFORMANCE-QA.md)。
@@ -62,7 +62,8 @@ e2e-py/
 │  ├─ config.py        #   环境配置:全走环境变量,切环境零改代码
 │  ├─ client.py        #   HTTP 客户端封装:鉴权头 / 独立源 IP / 超时
 │  ├─ jwt_utils.py     #   JWT 工厂:合法 + 过期/错签名/算法混淆等负向 token
-│  └─ prometheus.py    #   Prometheus 文本解析:支撑监控断言(见"修过的一个真 flaky")
+│  ├─ prometheus.py    #   Prometheus 文本解析:支撑监控断言(见"修过的一个真 flaky")
+│  └─ assertions.py    #   领域断言层:状态码 / 未授权契约 / 轮询分布(带容差)
 ├─ data/
 │  └─ auth_cases.yaml  # 数据驱动:鉴权用例
 ├─ testcases/          # 按被测模块组织的用例
@@ -72,7 +73,11 @@ e2e-py/
 └─ pytest.ini          # 标记 / 路径配置
 ```
 
-> **待补**:领域断言层(把重复校验收敛成语义化断言)。
+> **待补**:暂无。四项框架短板已全部补齐。
+>
+> ~~领域断言层~~ ✅ 已完成 —— `assert_status` / `assert_unauthorized` / `assert_round_robin`,
+> 全部 20 处状态码断言已收敛;轮询校验从"两个后端都出现过"升级为"分布是否均匀"
+> (原写法对 9:1 的严重倾斜完全无检出能力)。见 [`面试笔记.md`](面试笔记.md) 第 6、7 条。
 >
 > ~~`client.py` 的 `request()` 收口~~ ✅ 已完成 —— 四个重复方法收敛为一个
 > `request(method, path, **kwargs)`;header 改为合并且调用方优先,

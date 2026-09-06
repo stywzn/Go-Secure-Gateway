@@ -1,5 +1,6 @@
 import pytest,time
 from framework.client import GatewayClient
+from framework.assertions import assert_status
 from framework.jwt_utils import valid_token
 
 @pytest.mark.breaker
@@ -8,7 +9,7 @@ def test_circuit_opens_after_failures():
     for _ in range(6):
         client.get("/compute/run?status=500")
     resp = client.get("/compute/run")
-    assert resp.status_code == 503
+    assert_status(resp, 503)
     assert resp.headers.get("X-Served-By") is None      
 
 
@@ -19,8 +20,9 @@ def test_circuit_recovers_after_cooldown():
     # open  breaker
     for _ in range(6):
         client.get("/compute/run?status=500")
-    assert client.get("/compute/run").status_code == 503
+    resp = client.get("/compute/run")
+    assert_status(resp, 503)
     time.sleep(11)
     resp = client.get("/compute/run")
-    assert resp.status_code == 200
+    assert_status(resp, 200)
     assert resp.headers.get("X-Served-By") == "compute"

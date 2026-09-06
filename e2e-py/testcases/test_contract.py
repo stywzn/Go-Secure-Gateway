@@ -1,5 +1,6 @@
 import pytest
 import jsonschema
+from framework.assertions import assert_status
 
 
 TOKEN_SCHEMA = {
@@ -11,7 +12,7 @@ TOKEN_SCHEMA = {
 @pytest.mark.contract
 def test_debug_token_matches_schema(client):
     resp = client.get("/debug/token")
-    assert resp.status_code == 200
+    assert_status(resp, 200)
     jsonschema.validate(instance=resp.json(),schema=TOKEN_SCHEMA)
 
 
@@ -30,5 +31,5 @@ ECHO_SCHEMA = {
 @pytest.mark.contract
 def test_echo_matches_schema(auth_client):
     resp = auth_client.get("/interaction/ping")
-    assert resp.status_code == 200
+    assert_status(resp, 200)
     jsonschema.validate(instance=resp.json(),schema=ECHO_SCHEMA)
