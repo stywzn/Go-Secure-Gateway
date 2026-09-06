@@ -9,7 +9,7 @@ import (
 )
 
 // Rate limiting. Covers test points §2.2 (429 after burst) and §2.4 (per-IP
-// isolation). Compose config: rps=50, burst=100.
+// isolation). Compose config (configs/config.docker.yaml): rps=10, burst=20.
 
 func TestRateLimit_BlocksAfterBurst(t *testing.T) {
 	c := authClient(1).WithSourceIP(uniqueIP())

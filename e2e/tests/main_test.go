@@ -63,7 +63,23 @@ var ipCounter uint32
 
 // uniqueIP hands each caller a distinct source IP so their rate-limit buckets
 // are isolated (see client.WithSourceIP).
+//
+// The previous implementation was `10.20.<(n>>8)&0xff>.<(n&0xff)|1>`. The `|1`
+// — presumably meant to avoid the .0 network address — forces the low bit set,
+// so every even/odd pair of counter values collapses onto the SAME address:
+// n=2 and n=3 both yield 10.20.0.3. Only 129 distinct addresses came out of the
+// first 256 calls.
+//
+// That silently broke TestRateLimit_PerIPIsolation: its "fresh" client draws the
+// counter value immediately after "busy", so the two collided and the fresh
+// client reused busy's already-exhausted bucket — 429 where the test asserts 200.
+//
+// Now each /24 block is walked host .1 through .254 (skipping .0, the network
+// address, and .255, the broadcast address) before moving on to the next block,
+// so addresses stay genuinely unique for 254*256 = 65024 calls.
 func uniqueIP() string {
-	n := atomic.AddUint32(&ipCounter, 1)
-	return fmt.Sprintf("10.20.%d.%d", (n>>8)&0xff, (n&0xff)|1)
+	idx := atomic.AddUint32(&ipCounter, 1) - 1 // 0-based
+	host := idx%254 + 1                        // .1 .. .254
+	block := (idx / 254) % 256                 // third octet
+	return fmt.Sprintf("10.20.%d.%d", block, host)
 }
